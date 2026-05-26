@@ -1,18 +1,28 @@
 $ErrorActionPreference = "Stop"
 
-$hermes = Get-Command hermes -ErrorAction SilentlyContinue
-if (-not $hermes) {
-  Write-Host "Hermes command not found. Install Hermes first, then rerun this script."
-  exit 1
+$hermesCommand = Get-Command hermes -ErrorAction SilentlyContinue
+if ($hermesCommand) {
+  $hermesExe = $hermesCommand.Source
+} else {
+  $defaultHermesExe = Join-Path $env:LOCALAPPDATA "hermes\hermes-agent\venv\Scripts\hermes.exe"
+  if (Test-Path $defaultHermesExe) {
+    $hermesExe = $defaultHermesExe
+  } else {
+    Write-Host "Hermes command not found. Install Hermes first, then rerun this script."
+    exit 1
+  }
 }
 
 $profileNames = @("market-analyst", "contract-expert", "sales-manager")
 $templateRoot = Join-Path $PSScriptRoot "..\profiles"
-$hermesProfilesRoot = Join-Path $env:USERPROFILE ".hermes\profiles"
+$legacyHermesHome = Join-Path $env:USERPROFILE ".hermes"
+$localHermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA "hermes" }
+$hermesHome = if (Test-Path (Join-Path $legacyHermesHome "profiles")) { $legacyHermesHome } else { $localHermesHome }
+$hermesProfilesRoot = Join-Path $hermesHome "profiles"
 
 foreach ($name in $profileNames) {
   Write-Host "Ensuring Hermes profile:" $name
-  hermes profile create $name
+  & $hermesExe profile create $name
 
   $sourceSoul = Join-Path $templateRoot "$name\SOUL.md"
   $targetDir = Join-Path $hermesProfilesRoot $name
@@ -26,4 +36,3 @@ foreach ($name in $profileNames) {
 }
 
 Write-Host "Profiles initialized. Review each profile config before enabling API access."
-
