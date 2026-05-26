@@ -13,7 +13,7 @@ if ($hermesCommand) {
   }
 }
 
-$profileNames = @("market-analyst", "contract-expert", "sales-manager")
+$profileNames = @("market-analyst", "contract-expert", "sales-manager", "data-access-agent")
 $templateRoot = Join-Path $PSScriptRoot "..\profiles"
 $legacyHermesHome = Join-Path $env:USERPROFILE ".hermes"
 $localHermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA "hermes" }
