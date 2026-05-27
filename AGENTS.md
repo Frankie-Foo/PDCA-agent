@@ -159,3 +159,35 @@
   - URL: `http://100.x.x.x:8642/v1`
   - Key env: `BOB_HERMES_API_KEY`
   - Capabilities: 竞品分析
+
+## 业绩数据 Agent 小组
+
+当用户提出“业绩、实际业绩、销售明细、客户月度业绩、库存、按客户/月份汇总、从 VPS 拉销售数据”等问题时，优先进入业绩数据 Agent 小组流程。
+
+### performance-data-puller
+职责：从 Vertu/VPS/Odoo 或本地导出文件取得销售明细、库存、客户、产品等原始数据。优先使用 `vertu` CLI、`vps-cli` skill 和 `odoo-*` skills。输出到 `/data_raw/`。
+
+### performance-cleaner
+职责：清洗销售日期、客户名称、实际业绩、渠道、部门、退款、数量、产品、仓库等字段。输出到 `/data_clean/` 和 `/data_quality/`。
+
+### performance-aggregator
+职责：按客户、月份、销售员、渠道、部门、产品、SKU、国家、仓库等维度聚合实际业绩、数量、订单等指标。输出到 `/data_metrics/`。
+
+### performance-report-builder
+职责：生成业务可读报表，第一版支持“客户名称 x 1-12月 x 总计”的实际业绩 Excel。输出到 `/data_reports/`。
+
+### 当前可运行命令
+
+从本地销售明细生成客户月度业绩表：
+
+```powershell
+Set-Location -LiteralPath 'D:\经销商PDCA'
+powershell -ExecutionPolicy Bypass -File .\scripts\build-performance-report.ps1 `
+  -InputPath 'C:\Users\frank\Desktop\销售明细报表 (sale.order.line.report) (5).xlsx' `
+  -Year 2025 `
+  -Channel '代理' `
+  -Department '经销商' `
+  -Topic 'dealer-2025'
+```
+
+注意：运行输出默认被 `.gitignore` 忽略，不提交到 GitHub。
