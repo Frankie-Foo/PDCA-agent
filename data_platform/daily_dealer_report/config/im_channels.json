@@ -1,0 +1,10 @@
+{
+  "channels": [
+    {
+      "name": "经销商数据核对",
+      "type": "im_group",
+      "webhook_env": "DEALER_IM_WEBHOOK_URL",
+      "enabled": true
+    }
+  ]
+}
