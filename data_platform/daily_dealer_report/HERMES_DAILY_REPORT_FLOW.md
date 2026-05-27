@@ -50,10 +50,10 @@ im:
 
 ```powershell
 python D:\经销商PDCA\data_platform\daily_dealer_report\scripts\daily_dealer_report.py `
-  --input-xlsx "{sales_detail_file}" `
-  --sheet "{sheet_name}" `
+  --input-json "{system_json_file}" `
   --date "{run_date}" `
   --targets "D:\经销商PDCA\data_platform\daily_dealer_report\config\daily_targets_template.csv" `
+  --aliases "D:\经销商PDCA\data_platform\daily_dealer_report\config\sales_aliases.csv" `
   --pipeline "{pipeline_file_optional}" `
   --out-dir "D:\经销商PDCA\data_platform\daily_dealer_report\outputs" `
   --push
@@ -79,3 +79,23 @@ python D:\经销商PDCA\data_platform\daily_dealer_report\scripts\daily_dealer_r
 - 缺少目标表：继续生成业绩，但标记“目标缺失，达成率不可用”。
 - 缺少 webhook：写入 outbox，由 Hermes 后续补推。
 - 数据质量阻塞：只推送“数据核对异常提醒”，不推正式日报。
+
+## 系统取数片段
+
+每日正式取数优先使用：
+
+```text
+D:\经销商PDCA\data_platform\daily_dealer_report\system_queries\dealer_daily_report_sql_read.py
+```
+
+查询来源：
+
+```text
+dealer_sale_analysis
+```
+
+输出字段：
+
+```text
+销售日期、销售员、客户名称、实际业绩、付款时间、是否退款、渠道、二级部门、部门
+```

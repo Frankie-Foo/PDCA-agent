@@ -60,6 +60,24 @@ def read_targets(path):
     return targets
 
 
+def read_aliases(path):
+    aliases = {}
+    if not path or not Path(path).exists():
+        return aliases
+    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            raw = row.get("raw_sales", "").strip()
+            canonical = row.get("canonical_sales", "").strip()
+            if raw and canonical:
+                aliases[raw] = canonical
+    return aliases
+
+
+def normalize_sales(name, aliases):
+    text = str(name).strip() if name else ""
+    return aliases.get(text, text)
+
+
 def read_pipeline(path, run_date):
     pipeline = defaultdict(float)
     if not path or not Path(path).exists():
@@ -89,13 +107,25 @@ def inspect_workbook(input_xlsx, sheet_name):
     return (wb, ws, headers), []
 
 
-def build_metrics(input_xlsx, sheet_name, run_date, targets, pipeline):
-    inspected, blocking = inspect_workbook(input_xlsx, sheet_name)
-    if blocking:
-        return [], blocking, []
+def load_json_rows(input_json):
+    path = Path(input_json)
+    if not path.exists():
+        return None, [f"系统 JSON 文件不存在：{input_json}"]
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    if isinstance(payload, dict):
+        rows = payload.get("rows")
+        if rows is None and isinstance(payload.get("result"), dict):
+            rows = payload["result"].get("rows")
+        if rows is None and isinstance(payload.get("ai"), dict):
+            rows = payload["ai"].get("result", {}).get("rows")
+    else:
+        rows = payload
+    if not isinstance(rows, list):
+        return None, ["系统 JSON 中未找到 rows 列表"]
+    return rows, []
 
-    _, ws, headers = inspected
-    idx = {name: i for i, name in enumerate(headers)}
+
+def build_metrics_from_records(records, run_date, targets, pipeline, aliases):
     run_dt = datetime.strptime(run_date, "%Y-%m-%d")
     month_key = run_dt.strftime("%Y-%m")
     current = defaultdict(float)
@@ -104,28 +134,26 @@ def build_metrics(input_xlsx, sheet_name, run_date, targets, pipeline):
     negative_rows = 0
     large_rows = 0
 
-    payment_idx = idx.get("付款时间")
-    amount_idx = idx["实际业绩"]
-    sales_idx = idx["销售员"]
-    date_idx = idx["销售日期"]
-
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        sales = str(row[sales_idx]).strip() if row[sales_idx] else ""
+    for record in records:
+        sales = normalize_sales(record.get("销售员") or record.get("salesperson"), aliases)
         if not sales:
             continue
-        sales_date = parse_date(row[date_idx])
-        amount = to_number(row[amount_idx])
+        sales_date = parse_date(record.get("销售日期") or record.get("sale_date"))
+        amount = to_number(record.get("实际业绩") or record.get("performance") or record.get("performance_cny"))
         if amount < 0:
             negative_rows += 1
         if abs(amount) > 5_000_000:
             large_rows += 1
         if sales_date and sales_date.strftime("%Y-%m") == month_key:
             current[sales] += amount
-        if payment_idx is not None:
-            pay_date = parse_date(row[payment_idx])
-            if pay_date and pay_date.strftime("%Y-%m-%d") == run_date:
-                daily_collection[sales] += amount
+        pay_date = parse_date(record.get("付款时间") or record.get("payment_time"))
+        if pay_date and pay_date.strftime("%Y-%m-%d") == run_date:
+            daily_collection[sales] += amount
 
+    return finish_metrics(current, daily_collection, run_date, targets, pipeline, warnings, negative_rows, large_rows)
+
+
+def finish_metrics(current, daily_collection, run_date, targets, pipeline, warnings, negative_rows, large_rows):
     all_sales = sorted(set(current) | set(targets) | set(daily_collection) | set(pipeline))
     rows = []
     for sales in all_sales:
@@ -160,6 +188,52 @@ def build_metrics(input_xlsx, sheet_name, run_date, targets, pipeline):
 
     rows.sort(key=lambda r: (r["department"], r["team"], r["sales"]))
     return rows, [], warnings
+
+
+def build_metrics(input_xlsx, sheet_name, input_json, run_date, targets, pipeline, aliases):
+    if input_json:
+        records, blocking = load_json_rows(input_json)
+        if blocking:
+            return [], blocking, []
+        return build_metrics_from_records(records, run_date, targets, pipeline, aliases)
+
+    inspected, blocking = inspect_workbook(input_xlsx, sheet_name)
+    if blocking:
+        return [], blocking, []
+
+    _, ws, headers = inspected
+    idx = {name: i for i, name in enumerate(headers)}
+    run_dt = datetime.strptime(run_date, "%Y-%m-%d")
+    month_key = run_dt.strftime("%Y-%m")
+    current = defaultdict(float)
+    daily_collection = defaultdict(float)
+    warnings = []
+    negative_rows = 0
+    large_rows = 0
+
+    payment_idx = idx.get("付款时间")
+    amount_idx = idx["实际业绩"]
+    sales_idx = idx["销售员"]
+    date_idx = idx["销售日期"]
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        sales = normalize_sales(row[sales_idx], aliases)
+        if not sales:
+            continue
+        sales_date = parse_date(row[date_idx])
+        amount = to_number(row[amount_idx])
+        if amount < 0:
+            negative_rows += 1
+        if abs(amount) > 5_000_000:
+            large_rows += 1
+        if sales_date and sales_date.strftime("%Y-%m") == month_key:
+            current[sales] += amount
+        if payment_idx is not None:
+            pay_date = parse_date(row[payment_idx])
+            if pay_date and pay_date.strftime("%Y-%m-%d") == run_date:
+                daily_collection[sales] += amount
+
+    return finish_metrics(current, daily_collection, run_date, targets, pipeline, warnings, negative_rows, large_rows)
 
 
 def wan(value):
@@ -215,10 +289,35 @@ def make_report(rows, warnings, run_date):
             "|---|---|---|---:|---:|---:|---:|---:|",
         ]
     )
+
+    team_order = {"于冰组": 1, "杨晶晶组": 2, "Lina组": 3, "未配置团队": 99}
+    rows = sorted(rows, key=lambda r: (team_order.get(r["team"], 50), r["team"], r["sales"]))
+    current_team = None
+    team_bucket = []
+
+    def append_team_total(bucket):
+        if not bucket:
+            return
+        team_current = sum(item["current"] for item in bucket)
+        team_target = sum(item["target"] for item in bucket)
+        team_collection = sum(item["daily_collection"] for item in bucket)
+        team_pipeline = sum(item["pipeline"] for item in bucket)
+        team_rate = team_current / team_target if team_target else None
+        lines.append(
+            f"|  | {bucket[0]['team']} | 合计 | {wan(team_current)} | {wan(team_target)} | {pct(team_rate)} | {wan(team_collection)} | {wan(team_pipeline)} |"
+        )
+
     for r in rows:
+        if current_team is not None and r["team"] != current_team:
+            append_team_total(team_bucket)
+            team_bucket = []
+        current_team = r["team"]
+        team_bucket.append(r)
         lines.append(
             f"| {r['department']} | {r['team']} | {r['sales']} | {wan(r['current'])} | {wan(r['target'])} | {pct(r['achievement'])} | {wan(r['daily_collection'])} | {wan(r['pipeline'])} |"
         )
+    append_team_total(team_bucket)
+
     lines.append(
         f"| 已配置目标合计 |  |  | {wan(configured_current)} | {wan(total_target)} | {pct(total_rate)} | {wan(total_collection)} | {wan(total_pipeline)} |"
     )
@@ -259,10 +358,13 @@ def post_webhook(webhook_url, group_name, message):
 
 def main():
     parser = argparse.ArgumentParser(description="Generate and optionally push dealer daily report.")
-    parser.add_argument("--input-xlsx", required=True)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--input-xlsx")
+    source_group.add_argument("--input-json")
     parser.add_argument("--sheet", default="26")
     parser.add_argument("--date", required=True)
     parser.add_argument("--targets")
+    parser.add_argument("--aliases")
     parser.add_argument("--pipeline")
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--push", action="store_true")
@@ -275,8 +377,9 @@ def main():
     outbox_dir.mkdir(parents=True, exist_ok=True)
 
     targets = read_targets(args.targets)
+    aliases = read_aliases(args.aliases)
     pipeline = read_pipeline(args.pipeline, args.date)
-    rows, blocking, warnings = build_metrics(args.input_xlsx, args.sheet, args.date, targets, pipeline)
+    rows, blocking, warnings = build_metrics(args.input_xlsx, args.sheet, args.input_json, args.date, targets, pipeline, aliases)
     if blocking:
         message = f"# 海外经销商每日数据汇报 {args.date}\n\n## 数据阻塞\n" + "\n".join(f"- {item}" for item in blocking) + "\n"
     else:

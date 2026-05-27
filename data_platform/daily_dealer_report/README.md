@@ -29,12 +29,26 @@ D:\经销商PDCA\data_platform\daily_dealer_report
 
 ## 快速运行
 
+从 Excel 临时文件生成：
+
 ```powershell
 python D:\经销商PDCA\data_platform\daily_dealer_report\scripts\daily_dealer_report.py `
   --input-xlsx "D:\Vertu\data\excel\26年数据\5月\临时需求\26-杨晶晶.xlsx" `
   --sheet 26 `
   --date 2026-05-20 `
   --targets "D:\经销商PDCA\data_platform\daily_dealer_report\config\daily_targets_template.csv" `
+  --aliases "D:\经销商PDCA\data_platform\daily_dealer_report\config\sales_aliases.csv" `
+  --out-dir "D:\经销商PDCA\data_platform\daily_dealer_report\outputs"
+```
+
+从 Hermes / 系统导出的 JSON 生成：
+
+```powershell
+python D:\经销商PDCA\data_platform\daily_dealer_report\scripts\daily_dealer_report.py `
+  --input-json "D:\经销商PDCA\data_raw\dealer_daily_report_2026-05-20.json" `
+  --date 2026-05-20 `
+  --targets "D:\经销商PDCA\data_platform\daily_dealer_report\config\daily_targets_template.csv" `
+  --aliases "D:\经销商PDCA\data_platform\daily_dealer_report\config\sales_aliases.csv" `
   --out-dir "D:\经销商PDCA\data_platform\daily_dealer_report\outputs"
 ```
 
@@ -60,3 +74,27 @@ outputs\outbox\YYYY-MM-DD_im_payload.json
 ```
 
 Hermes 可以监听这个 outbox，或者你把 webhook 给 Cursor 后接入真实发送。
+
+## 销售姓名映射
+
+系统明细里的销售员名称可能和日报模板不一致，统一放在：
+
+```text
+config\sales_aliases.csv
+```
+
+当前已配置：
+
+```text
+DEHDAHOUMAIMA -> Lina
+```
+
+## 系统取数
+
+Hermes 取数查询片段在：
+
+```text
+system_queries\dealer_daily_report_sql_read.py
+```
+
+它从 `dealer_sale_analysis` 拉取当月到日报日期的全量经销商销售明细。Hermes 执行后把结果保存为 JSON，再交给 `--input-json` 即可。
