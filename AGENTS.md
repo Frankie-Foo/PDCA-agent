@@ -1,5 +1,17 @@
 # 经销商 PDCA 智能体分工与流转契约
 
+## 当前业务 Agent 总清单
+
+本项目当前定义了 8 个业务 Agent 角色：
+
+1. `data-access-agent`：中台数据查询入口，负责把自然语言问题转成安全可追溯的 VPS/Odoo 查询。
+2. `market-analyst`：市场分析、客户洞察、销售切入点提炼。
+3. `contract-expert`：合同审查、条款风险、责任边界和修改建议。
+4. `sales-manager`：折扣审批、商务策略、关键客户推进和最终方案建议。
+5. `performance-data-puller`：业绩数据拉取，从 Vertu/VPS/Odoo 或本地导出取得销售明细、库存、客户、产品等原始数据。
+6. `performance-cleaner`：业绩数据清洗，处理客户名、销售日期、实际业绩、渠道、部门、退款、数量、产品、仓库等字段。
+7. `performance-aggregator`：业绩指标聚合，按客户、月份、销售员、渠道、部门、产品、SKU、国家、仓库等维度汇总。
+8. `performance-report-builder`：业绩报表生成，输出“客户名称 x 1-12月 x 总计”等 Excel/Markdown/看板输入。
 ## 总原则
 
 - 所有 Agent 必须优先读取本文件和 `.cursorrules`。
