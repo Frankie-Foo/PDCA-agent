@@ -5,8 +5,19 @@
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Runtime data and business outputs. Keep generated customer/order data local.
 data_raw/*.json
 data_raw/*.md
+data_clean/*.csv
+data_clean/*.json
+data_metrics/*.csv
+data_metrics/*.json
 data_reports/*.md
+data_reports/*.xlsx
+data_reports/*.csv
 data_quality/*.md
 pdca_actions/*.md
+
+__pycache__/
+*.pyc

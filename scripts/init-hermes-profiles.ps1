@@ -13,7 +13,7 @@ if ($hermesCommand) {
   }
 }
 
-$profileNames = @("market-analyst", "contract-expert", "sales-manager", "data-access-agent")
+$profileNames = @("market-analyst", "contract-expert", "sales-manager", "data-access-agent", "performance-data-puller", "performance-cleaner", "performance-aggregator", "performance-report-builder")
 $templateRoot = Join-Path $PSScriptRoot "..\profiles"
 $legacyHermesHome = Join-Path $env:USERPROFILE ".hermes"
 $localHermesHome = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:LOCALAPPDATA "hermes" }
@@ -36,3 +36,4 @@ foreach ($name in $profileNames) {
 }
 
 Write-Host "Profiles initialized. Review each profile config before enabling API access."
+
