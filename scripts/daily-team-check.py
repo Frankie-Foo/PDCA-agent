@@ -5,6 +5,7 @@ import re
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
+from difflib import SequenceMatcher
 
 
 MEMBERS = ["杨晶晶", "何海文", "王宇彤"]
@@ -126,6 +127,146 @@ def load_customers(path):
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def parse_customer_actions(log_path):
+    """从日报的客户动作表中解析每行记录，返回列表。
+
+    @returns {list[dict]} 每条记录包含 customer/action/result/next_step/next_followup_date
+    """
+    if not log_path.exists():
+        return []
+    lines = read_lines(log_path)
+    actions = []
+    in_table = False
+    header_passed = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            if in_table:
+                break
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if not in_table:
+            # 识别表头行（含"客户"列）
+            if any("客户" in c for c in cells):
+                in_table = True
+                header_passed = False
+            continue
+        if not header_passed:
+            # 跳过分隔行 |---|---|...|
+            header_passed = True
+            continue
+        if len(cells) < 5:
+            continue
+        customer, action, result, next_step, next_date = cells[0], cells[1], cells[2], cells[3], cells[4]
+        if not customer:
+            continue
+        actions.append({
+            "customer": customer,
+            "action": action,
+            "result": result,
+            "next_step": next_step,
+            "next_followup_date": next_date,
+        })
+    return actions
+
+
+def fuzzy_match(name, candidates, threshold=0.6):
+    """模糊匹配客户名称，返回最佳匹配的候选项或 None。
+
+    @param {str} name - 日报中填写的客户名
+    @param {list[str]} candidates - customers.csv 中的正式名称列表
+    @param {float} threshold - 相似度阈值
+    @returns {str|None} 最佳匹配的正式客户名，若无匹配则返回 None
+    """
+    best_ratio = 0.0
+    best_match = None
+    name_lower = name.lower()
+    for candidate in candidates:
+        # 先尝试包含关系（优先级高于相似度）
+        if name_lower in candidate.lower() or candidate.lower() in name_lower:
+            return candidate
+        ratio = SequenceMatcher(None, name_lower, candidate.lower()).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = candidate
+    return best_match if best_ratio >= threshold else None
+
+
+def generate_writeback_list(team_path, date_text, customers, summaries):
+    """解析各成员日报客户动作表，生成待回写 customers.csv 的建议清单。
+
+    @param {Path} team_path - 小组根目录
+    @param {str} date_text - 检查日期 YYYY-MM-DD
+    @param {list[dict]} customers - customers.csv 行列表
+    @param {dict} summaries - 各成员日报摘要（用于判断是否有日报）
+    @returns {str} 待回写清单 Markdown 文本
+    """
+    customer_names = [c["dealer_name"] for c in customers]
+    rows_matched = []
+    rows_unmatched = []
+
+    for member in MEMBERS:
+        if not summaries[member]["submitted"]:
+            continue
+        slug = SLUGS[member]
+        log_path = team_path / "daily_logs" / slug / f"{date_text}.md"
+        actions = parse_customer_actions(log_path)
+        for act in actions:
+            matched = fuzzy_match(act["customer"], customer_names)
+            row = {
+                "member": member,
+                "log_customer": act["customer"],
+                "matched_customer": matched,
+                "action": act["action"],
+                "result": act["result"],
+                "next_step": act["next_step"],
+                "next_followup_date": act["next_followup_date"],
+            }
+            if matched:
+                rows_matched.append(row)
+            else:
+                rows_unmatched.append(row)
+
+    lines = [f"# 客户跟进回写清单 {date_text}", ""]
+    lines.append("根据各成员 " + date_text + " 日报自动生成，建议核实后手动更新 `customers.csv`。")
+    lines.append("")
+
+    if rows_matched:
+        lines.append("## 可回写记录（已匹配 customers.csv）")
+        lines.append("")
+        lines.append("| 负责人 | 日报客户名 | 匹配正式名 | 跟进动作 | 下一步 | 建议回写日期 |")
+        lines.append("|---|---|---|---|---|---|")
+        for r in rows_matched:
+            lines.append(
+                f"| {r['member']} | {r['log_customer']} | {r['matched_customer']} "
+                f"| {r['action']} | {r['next_step']} | {r['next_followup_date']} |"
+            )
+        lines.append("")
+        lines.append(
+            "> **操作**：将上表【匹配正式名】行的 `last_followup_date` 更新为 "
+            f"`{date_text}`，`next_action` 更新为【下一步】列内容。"
+        )
+    else:
+        lines.append("## 可回写记录")
+        lines.append("")
+        lines.append("_今日日报中无可匹配的客户动作记录。_")
+
+    lines.append("")
+
+    if rows_unmatched:
+        lines.append("## 未匹配记录（需人工确认）")
+        lines.append("")
+        lines.append("| 负责人 | 日报客户名 | 跟进动作 | 下一步 | 备注 |")
+        lines.append("|---|---|---|---|---|")
+        for r in rows_unmatched:
+            lines.append(
+                f"| {r['member']} | {r['log_customer']} | {r['action']} "
+                f"| {r['next_step']} | 请确认是否为新客户，若是则补录至 customers.csv |"
+            )
+
+    return "\n".join(lines)
 
 
 def generate(team_path, date_text):
@@ -299,9 +440,14 @@ def generate(team_path, date_text):
 """
     write(action_dir / f"{next_day}_team_leader_actions.md", leader_action)
 
+    writeback_text = generate_writeback_list(team_path, date_text, customers, summaries)
+    writeback_path = action_dir / f"{date_text}_customer_writeback.md"
+    write(writeback_path, writeback_text)
+
     print(f"Generated reports for {TEAM_NAME} on {date_text}")
     print(f"Team check: {check_dir / f'{date_text}_team_check.md'}")
     print(f"Actions: {action_dir}")
+    print(f"Writeback list: {writeback_path}")
 
 
 def main():
