@@ -1,0 +1,14 @@
+{
+  "timezone": "Asia/Shanghai",
+  "morning_trigger": "09:00",
+  "im": {
+    "group_name": "经销商数据核对",
+    "webhook_env": "DATA_PDCA_IM_WEBHOOK_URL"
+  },
+  "data_metrics": ["performance", "quantity"],
+  "summary_dimensions": ["salesperson", "product", "customer"],
+  "logistics": {
+    "normal_keywords": ["delivered", "in transit", "out for delivery", "label created", "已签收", "运输中", "派送中"],
+    "abnormal_keywords": ["exception", "delay", "returned", "failed", "held", "异常", "延误", "退回", "派送失败"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "UPS": {
+    "tracking_url": "https://www.ups.com/track?tracknum={tracking_number}",
+    "api_env": "UPS_API_KEY"
+  },
+  "FedEx": {
+    "tracking_url": "https://www.fedex.com/fedextrack/?trknbr={tracking_number}",
+    "api_env": "FEDEX_API_KEY"
+  },
+  "DHL": {
+    "tracking_url": "https://www.dhl.com/global-en/home/tracking.html?tracking-id={tracking_number}",
+    "api_env": "DHL_API_KEY"
+  },
+  "SF": {
+    "tracking_url": "https://www.sf-express.com/we/ow/chn/sc/waybill/waybill-detail/{tracking_number}",
+    "api_env": "SF_API_KEY"
+  }
+}

@@ -1,0 +1,4 @@
+request_id,date,dimension,metric,source_file,status,note
+REQ-001,2026-05-28,salesperson,performance,,pending,
+REQ-002,2026-05-28,product,quantity,,pending,
+REQ-003,2026-05-28,customer,performance,,pending,

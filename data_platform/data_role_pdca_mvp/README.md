@@ -1,0 +1,57 @@
+# 数据岗位 PDCA MVP
+
+这是给经销商数据中台岗位使用的 PDCA 演示版 MVP。它先实现“可演示、可跑通、可接 Hermes”的最小闭环。
+
+## MVP 目标
+
+每天形成一条闭环：
+
+```text
+早上拉代办 -> 白天处理数据/物流/临时需求 -> 晚上填问卷 -> 自动生成 Check/Act -> 次日继续滚动
+```
+
+## 5 个核心需求
+
+1. 北京时间早上，从 VPS/Hermes 拉今日代办。
+2. 数据 Agent 生成销售员、产品、客户维度汇总，输出 Excel/图表。
+3. 物流 Agent 读取单号，查询 UPS/FedEx 等状态，判断正常/异常并返回消息。
+4. 每日问卷记录今天完成、明天计划、昨天遗留、上级交办交付情况。
+5. 生成每日 PDCA 日结报告和次日行动清单。
+
+## 目录
+
+```text
+data_role_pdca_mvp/
+├── README.md
+├── HERMES_FLOW.md
+├── AGENTS.md
+├── config/
+├── templates/
+├── scripts/
+├── inputs/
+├── outputs/
+└── outbox/
+```
+
+## 快速演示
+
+```powershell
+python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_daily.py `
+  --date 2026-05-28 `
+  --workspace D:\经销商PDCA\data_platform\data_role_pdca_mvp
+```
+
+运行后生成：
+
+- `outputs/YYYY-MM-DD/todo_reminder.md`
+- `outputs/YYYY-MM-DD/data_summary_report.md`
+- `outputs/YYYY-MM-DD/logistics_check_report.md`
+- `outputs/YYYY-MM-DD/pdca_daily_check.md`
+- `outbox/YYYY-MM-DD_im_message.md`
+
+## 下一步接入点
+
+- VPS/Hermes 代办来源：`scripts/todo_source_vps.py`
+- Odoo/VPS 数据来源：复用 `daily_dealer_report` 和 `dealer_sale_analysis`
+- 金山文档物流单号：`inputs/logistics_tracking_template.csv` 先演示，后续接金山 API/导出文件
+- IM 推送：读取 `DEALER_IM_WEBHOOK_URL`
