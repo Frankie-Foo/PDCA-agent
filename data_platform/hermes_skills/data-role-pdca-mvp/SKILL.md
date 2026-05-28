@@ -29,7 +29,14 @@ Use this skill when the user wants to run or demonstrate the data role PDCA MVP.
 
 ## Workflow
 
-1. Run the daily MVP script:
+1. Run the daily MVP runner:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\run_data_role_pdca_daily.ps1 `
+  -Date YYYY-MM-DD
+```
+
+Or run the Python script directly:
 
 ```powershell
 python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_daily.py `
@@ -72,4 +79,3 @@ inputs\questionnaires\YYYY-MM-DD_questionnaire.md
 - Do not treat the questionnaire as complete until the user fills it.
 - Keep unfinished tasks rolling into the next day.
 - For data summaries, use Odoo/VPS data as source of truth when available.
-

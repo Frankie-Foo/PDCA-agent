@@ -4,6 +4,12 @@
 
 建议北京时间每天 09:00 触发。
 
+本地实际运行入口：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\run_data_role_pdca_daily.ps1
+```
+
 ```text
 Hermes
 -> todo-planner-agent

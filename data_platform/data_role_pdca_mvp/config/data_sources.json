@@ -1,0 +1,11 @@
+{
+  "sales_xlsx": "D:\\Vertu\\data\\excel\\26年数据\\5月\\临时需求\\26-杨晶晶.xlsx",
+  "sales_sheet": "26",
+  "sales_json": "",
+  "logistics_csv": "",
+  "notes": {
+    "sales_xlsx": "临时 Excel 或系统导出 Excel。正式建议改为 Hermes/Odoo 导出的 JSON。",
+    "sales_json": "Hermes/VPS 系统取数结果，优先级高于 sales_xlsx。",
+    "logistics_csv": "金山文档导出的物流 CSV；为空时读取 inputs/logistics/YYYY-MM-DD_tracking.csv。"
+  }
+}

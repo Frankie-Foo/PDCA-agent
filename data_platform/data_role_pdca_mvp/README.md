@@ -35,16 +35,33 @@ data_role_pdca_mvp/
 
 ## 快速演示
 
+直接读取 `config\data_sources.json` 运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\run_data_role_pdca_daily.ps1
+```
+
+指定日期：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\run_data_role_pdca_daily.ps1 -Date 2026-05-28
+```
+
+底层 Python 命令：
+
 ```powershell
 python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_daily.py `
   --date 2026-05-28 `
-  --workspace D:\经销商PDCA\data_platform\data_role_pdca_mvp
+  --workspace D:\经销商PDCA\data_platform\data_role_pdca_mvp `
+  --sales-xlsx "D:\Vertu\data\excel\26年数据\5月\临时需求\26-杨晶晶.xlsx" `
+  --sales-sheet 26
 ```
 
 运行后生成：
 
 - `outputs/YYYY-MM-DD/todo_reminder.md`
 - `outputs/YYYY-MM-DD/data_summary_report.md`
+- `outputs/YYYY-MM-DD/YYYY-MM-DD_data_summary.xlsx`
 - `outputs/YYYY-MM-DD/logistics_check_report.md`
 - `outputs/YYYY-MM-DD/pdca_daily_check.md`
 - `outbox/YYYY-MM-DD_im_message.md`
@@ -55,3 +72,17 @@ python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_
 - Odoo/VPS 数据来源：复用 `daily_dealer_report` 和 `dealer_sale_analysis`
 - 金山文档物流单号：`inputs/logistics_tracking_template.csv` 先演示，后续接金山 API/导出文件
 - IM 推送：读取 `DEALER_IM_WEBHOOK_URL`
+
+## 每天早上自动运行
+
+注册 Windows 计划任务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\setup_morning_task.ps1 -Time 09:00
+```
+
+默认任务名：
+
+```text
+DealerDataRolePDCAMorning
+```
