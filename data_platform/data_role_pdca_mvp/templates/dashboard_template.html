@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>数据岗位 PDCA 看板</title>
+  <style>
+    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: #f4f7fb; color: #172033; }
+    header { background: #2f62bd; color: white; padding: 20px 28px; }
+    h1 { margin: 0; font-size: 28px; }
+    main { padding: 20px 28px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .card { background: white; border: 1px solid #d9e2f2; border-radius: 8px; padding: 16px; }
+    .metric { font-size: 26px; font-weight: 700; color: #1b4f9c; }
+    table { width: 100%; border-collapse: collapse; background: white; margin-top: 12px; }
+    th, td { border: 1px solid #d9e2f2; padding: 8px 10px; text-align: left; font-size: 14px; }
+    th { background: #eaf1ff; }
+    .bar { height: 16px; background: #4f7ed8; border-radius: 4px; min-width: 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>数据岗位 PDCA 看板 - {{date}}</h1>
+  </header>
+  <main>
+    <section class="grid">
+      <div class="card"><div>今日代办</div><div class="metric">{{todo_count}}</div></div>
+      <div class="card"><div>物流需关注</div><div class="metric">{{logistics_attention_count}}</div></div>
+      <div class="card"><div>业绩合计</div><div class="metric">{{total_performance}}</div></div>
+    </section>
+    <section class="card" style="margin-top:16px">
+      <h2>销售员 TOP</h2>
+      {{salesperson_table}}
+    </section>
+    <section class="card" style="margin-top:16px">
+      <h2>产品 TOP</h2>
+      {{product_table}}
+    </section>
+    <section class="card" style="margin-top:16px">
+      <h2>客户 TOP</h2>
+      {{customer_table}}
+    </section>
+  </main>
+</body>
+</html>

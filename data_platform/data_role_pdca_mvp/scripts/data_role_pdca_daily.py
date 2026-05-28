@@ -23,6 +23,16 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
+def read_aliases(path):
+    aliases = {}
+    for row in read_csv(path):
+        raw = text(row.get("raw_sales"))
+        canonical = text(row.get("canonical_sales"))
+        if raw and canonical:
+            aliases[raw] = canonical
+    return aliases
+
+
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
@@ -82,7 +92,7 @@ def normalize_sales_record(row):
     return {
         "date": first_present(row, ["销售日期", "sale_date", "date"]),
         "salesperson": text(first_present(row, ["销售员", "salesperson", "owner"])),
-        "customer": text(first_present(row, ["客户名称", "customer_name", "customer", "经销商"])),
+        "customer": text(first_present(row, ["客户名称", "customer_name", "customer", "经销商", "partner_name"])),
         "product": text(first_present(row, ["存货名称", "product_name", "产品名称", "product", "商品名称"])),
         "product_code": text(first_present(row, ["产品编码", "product_code", "sku"])),
         "quantity": money(first_present(row, ["实际数量", "数量", "quantity", "qty"])),
@@ -108,10 +118,53 @@ def read_sales_json(path):
     if isinstance(payload, list):
         rows = payload
     elif isinstance(payload, dict):
-        rows = payload.get("rows") or payload.get("data") or payload.get("result", {}).get("rows") or []
+        rows = payload.get("rows") or payload.get("data") or []
+        if not rows and isinstance(payload.get("result"), dict):
+            rows = payload["result"].get("rows") or []
+        if not rows and isinstance(payload.get("result"), list):
+            rows = payload["result"]
+        if not rows and isinstance(payload.get("ai"), dict):
+            ai_result = payload["ai"].get("result")
+            if isinstance(ai_result, dict):
+                rows = ai_result.get("rows") or []
     else:
         rows = []
     return [normalize_sales_record(row) for row in rows]
+
+
+def read_sales_summary_json(path, aliases=None):
+    aliases = aliases or {}
+    payload = load_json(path)
+    result = None
+    if isinstance(payload, dict):
+        if isinstance(payload.get("execution"), dict):
+            result = payload["execution"].get("result")
+        if result is None:
+            result = payload.get("result")
+    if not isinstance(result, dict) or not result.get("summary_mode"):
+        return None
+
+    def convert(rows, key_name):
+        converted = []
+        for row in rows or []:
+            dimension = text(row.get(key_name)) or "(空)"
+            if key_name == "salesperson":
+                dimension = aliases.get(dimension, dimension)
+            converted.append({
+                "dimension": dimension,
+                "performance": money(row.get("performance")),
+                "quantity": money(row.get("quantity")),
+                "rows": int(money(row.get("line_count"))),
+            })
+        return converted
+
+    return {
+        "source": result.get("source", "VPS/Odoo"),
+        "table": result.get("table", ""),
+        "salesperson": convert(result.get("salesperson_summary"), "salesperson"),
+        "product": convert(result.get("product_summary"), "product_name"),
+        "customer": convert(result.get("customer_summary"), "partner_name"),
+    }
 
 
 def filter_month_to_date(records, date_text):
@@ -198,6 +251,67 @@ def write_summary_workbook(path, date_text, records):
     return summaries
 
 
+def write_summary_workbook_from_vps(path, date_text, summary):
+    wb = Workbook()
+    overview = wb.active
+    overview.title = "说明"
+    overview.append(["项目", "值"])
+    overview.append(["日期", date_text])
+    overview.append(["数据来源", summary.get("source", "VPS/Odoo")])
+    overview.append(["数据表", summary.get("table", "")])
+    total_perf = sum(r["performance"] for r in summary.get("salesperson", []))
+    total_qty = sum(r["quantity"] for r in summary.get("salesperson", []))
+    overview.append(["业绩合计", total_perf])
+    overview.append(["数量合计", total_qty])
+    for cell in overview[1]:
+        cell.font = Font(bold=True)
+    overview.column_dimensions["A"].width = 18
+    overview.column_dimensions["B"].width = 40
+
+    add_table_sheet(wb, "销售员汇总", summary.get("salesperson", []))
+    add_table_sheet(wb, "产品汇总", summary.get("product", []))
+    add_table_sheet(wb, "客户汇总", summary.get("customer", []))
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    return {
+        "销售员汇总": summary.get("salesperson", []),
+        "产品汇总": summary.get("product", []),
+        "客户汇总": summary.get("customer", []),
+    }
+
+
+def top_table(rows):
+    if not rows:
+        return "<p>暂无数据</p>"
+    max_perf = max(abs(row.get("performance", 0.0)) for row in rows[:10]) or 1
+    parts = ["<table><thead><tr><th>维度</th><th>业绩</th><th>数量</th><th>图示</th></tr></thead><tbody>"]
+    for row in rows[:10]:
+        perf = row.get("performance", 0.0)
+        width = max(2, int(abs(perf) / max_perf * 100))
+        parts.append(
+            f"<tr><td>{row.get('dimension','')}</td><td>{perf:,.2f}</td><td>{row.get('quantity',0):,.2f}</td><td><div class='bar' style='width:{width}%'></div></td></tr>"
+        )
+    parts.append("</tbody></table>")
+    return "\n".join(parts)
+
+
+def write_dashboard(path, workspace, date_text, pending_todos, logistics_rows, chart_data):
+    template_path = workspace / "templates" / "dashboard_template.html"
+    template = template_path.read_text(encoding="utf-8")
+    total_performance = sum(row.get("performance", 0.0) for row in chart_data.get("salesperson_top", []))
+    attention = len([row for row in logistics_rows if row.get("judgement") in {"异常", "待关注"}])
+    html = template
+    html = html.replace("{{date}}", date_text)
+    html = html.replace("{{todo_count}}", str(len(pending_todos)))
+    html = html.replace("{{logistics_attention_count}}", str(attention))
+    html = html.replace("{{total_performance}}", f"{total_performance:,.2f}")
+    html = html.replace("{{salesperson_table}}", top_table(chart_data.get("salesperson_top", [])))
+    html = html.replace("{{product_table}}", top_table(chart_data.get("product_top", [])))
+    html = html.replace("{{customer_table}}", top_table(chart_data.get("customer_top", [])))
+    write(path, html)
+
+
 def build_todo_reminder(workspace, date_text):
     today_path = workspace / "inputs" / "todos" / f"{date_text}_todos.csv"
     yesterday = (datetime.strptime(date_text, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -234,24 +348,35 @@ def build_todo_reminder(workspace, date_text):
 def build_data_summary(workspace, date_text, day_out, sales_xlsx=None, sales_json=None, sales_sheet=None):
     records = []
     source_note = "未提供销售明细，已生成汇总任务框架"
+    vps_summary = None
     if sales_json:
-        records = read_sales_json(Path(sales_json))
-        source_note = sales_json
+        aliases = read_aliases(workspace / "config" / "sales_aliases.csv")
+        vps_summary = read_sales_summary_json(Path(sales_json), aliases)
+        if not vps_summary:
+            records = read_sales_json(Path(sales_json))
+        source_note = f"VPS/Odoo JSON：{sales_json}"
     elif sales_xlsx:
         records = read_sales_xlsx(Path(sales_xlsx), sales_sheet)
-        source_note = sales_xlsx
+        source_note = f"离线演示 Excel：{sales_xlsx}"
     records = filter_month_to_date(records, date_text)
 
     workbook_path = day_out / f"{date_text}_data_summary.xlsx"
-    summaries = write_summary_workbook(workbook_path, date_text, records)
+    if vps_summary:
+        summaries = write_summary_workbook_from_vps(workbook_path, date_text, vps_summary)
+        total_perf = sum(r["performance"] for r in summaries["销售员汇总"])
+        total_qty = sum(r["quantity"] for r in summaries["销售员汇总"])
+        record_count = sum(r["rows"] for r in summaries["销售员汇总"])
+    else:
+        summaries = write_summary_workbook(workbook_path, date_text, records)
+        total_perf = sum(r.get("performance", 0.0) for r in records)
+        total_qty = sum(r.get("quantity", 0.0) for r in records)
+        record_count = len(records)
 
-    total_perf = sum(r.get("performance", 0.0) for r in records)
-    total_qty = sum(r.get("quantity", 0.0) for r in records)
     lines = [
         f"# 数据汇总报告 {date_text}",
         "",
         f"- 数据来源：{source_note}",
-        f"- 明细行数：{len(records)}",
+        f"- 明细行数：{record_count}",
         f"- 业绩合计：{total_perf:,.2f}",
         f"- 数量合计：{total_qty:,.2f}",
         f"- Excel 输出：`{workbook_path}`",
@@ -266,8 +391,8 @@ def build_data_summary(workspace, date_text, day_out, sales_xlsx=None, sales_jso
     lines.extend(["", "## TOP 客户"])
     for row in summaries["客户汇总"][:5]:
         lines.append(f"- {row['dimension']}：业绩 {row['performance']:,.2f}，数量 {row['quantity']:,.2f}")
-    if not records:
-        lines.extend(["", "## 待接入", "- 请传入 `--sales-xlsx` 或 `--sales-json`，即可生成真实销售员/产品/客户汇总 Excel。"])
+    if not records and not vps_summary:
+        lines.extend(["", "## 数据阻塞", "- 未读取到 VPS/Odoo 正式业绩数据。请先运行 `scripts\\pull_vps_sales_data.ps1`。"])
 
     chart_data = {
         "date": date_text,
@@ -437,6 +562,7 @@ def main():
     parser.add_argument("--sales-xlsx")
     parser.add_argument("--sales-sheet")
     parser.add_argument("--sales-json")
+    parser.add_argument("--allow-excel-demo", action="store_true")
     parser.add_argument("--logistics-csv")
     parser.add_argument("--push", action="store_true")
     args = parser.parse_args()
@@ -446,6 +572,9 @@ def main():
     day_out = workspace / "outputs" / date_text
 
     todo_text, pending = build_todo_reminder(workspace, date_text)
+    if args.sales_xlsx and not args.allow_excel_demo and not args.sales_json:
+        raise SystemExit("正式业绩数据必须来自 VPS/Odoo JSON。Excel 仅允许加 --allow-excel-demo 用于离线演示。")
+
     data_text, chart_data, workbook_path = build_data_summary(workspace, date_text, day_out, args.sales_xlsx, args.sales_json, args.sales_sheet)
     logistics_text, logistics_rows = build_logistics_report(workspace, date_text, day_out, args.logistics_csv)
     questionnaire_path = ensure_questionnaire(workspace, date_text)
@@ -458,6 +587,7 @@ def main():
     write(day_out / "logistics_check_report.md", logistics_text)
     write(day_out / "pdca_daily_check.md", pdca_text)
     write(day_out / "chart_data.json", json.dumps(chart_data, ensure_ascii=False, indent=2))
+    write_dashboard(day_out / "dashboard.html", workspace, date_text, pending, logistics_rows, chart_data)
 
     im_message = "\n\n".join([todo_text, data_text, logistics_text, pdca_text])
     outbox = workspace / "outbox" / f"{date_text}_im_message.md"

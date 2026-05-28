@@ -62,6 +62,23 @@ inputs\questionnaires\YYYY-MM-DD_questionnaire.md
 
 4. If IM webhook is configured, push `outbox\YYYY-MM-DD_im_message.md`.
 
+## Official Performance Data Rule
+
+All performance numbers must come from VPS/Odoo.
+
+Use:
+
+```text
+vps-cli skill: odoo-data-query-assistant
+vps-cli skill: odoo-sandbox-script-guide
+command: vertu odoo data sandbox
+table: sale_order_line_report
+dealer sale_type: agent_sale / agent_sale_replacement / agent_sale_return
+```
+
+Excel input is allowed only when the command explicitly uses `--allow-excel-demo`.
+Do not present Excel-derived numbers as official performance.
+
 ## Agent Roles
 
 - `todo-planner-agent`
@@ -69,6 +86,7 @@ inputs\questionnaires\YYYY-MM-DD_questionnaire.md
 - `product-summary-agent`
 - `customer-summary-agent`
 - `logistics-tracking-agent`
+- `logistics-browser-agent`
 - `pdca-questionnaire-agent`
 - `pdca-check-act-agent`
 - `im-notifier-agent`
@@ -76,6 +94,7 @@ inputs\questionnaires\YYYY-MM-DD_questionnaire.md
 ## Rules
 
 - Do not fabricate logistics status. If API is unavailable, produce tracking links and a manual check list.
+- For logistics tracking, prefer a browser agent visiting UPS/FedEx/DHL official tracking pages when no carrier API key is configured.
 - Do not treat the questionnaire as complete until the user fills it.
 - Keep unfinished tasks rolling into the next day.
 - For data summaries, use Odoo/VPS data as source of truth when available.

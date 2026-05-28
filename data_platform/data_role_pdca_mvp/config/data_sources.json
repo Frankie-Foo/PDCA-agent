@@ -1,11 +1,15 @@
 {
-  "sales_xlsx": "D:\\Vertu\\data\\excel\\26年数据\\5月\\临时需求\\26-杨晶晶.xlsx",
+  "official_source": "vps",
+  "sales_xlsx": "",
   "sales_sheet": "26",
   "sales_json": "",
+  "allow_excel_demo": false,
   "logistics_csv": "",
   "notes": {
-    "sales_xlsx": "临时 Excel 或系统导出 Excel。正式建议改为 Hermes/Odoo 导出的 JSON。",
-    "sales_json": "Hermes/VPS 系统取数结果，优先级高于 sales_xlsx。",
+    "official_source": "正式业绩来源必须是 vps。",
+    "sales_xlsx": "只允许离线演示/调试，不能作为正式业绩来源。",
+    "sales_json": "Hermes/VPS 系统取数结果，正式口径优先。",
+    "allow_excel_demo": "只有演示时才允许设置为 true。",
     "logistics_csv": "金山文档导出的物流 CSV；为空时读取 inputs/logistics/YYYY-MM-DD_tracking.csv。"
   }
 }

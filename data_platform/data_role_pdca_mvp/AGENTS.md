@@ -1,5 +1,7 @@
 # 数据岗位 PDCA MVP Agents
 
+实际落地版共 9 个 Agent。所有入口都应由 Hermes 调度；Cursor 只作为工作台。
+
 ## 1. todo-planner-agent
 
 职责：
@@ -24,10 +26,29 @@
 
 - 判断今天要做哪类数据汇总。
 - 分派给销售、产品、客户维度汇总 Agent。
+- 正式业绩数据必须先由 `vps-sales-data-agent` 从 VPS/Odoo 拉取。
 
 输出：
 
 - 汇总任务清单
+
+## 2a. vps-sales-data-agent
+
+职责：
+
+- 使用 vps-cli 从 VPS/Odoo 拉正式业绩数据。
+- 使用 skill：
+  - `odoo-data-query-assistant`
+  - `odoo-sandbox-script-guide`
+- 使用命令：
+  - `vertu odoo data sandbox`
+- 使用数据源：
+  - `sale_order_line_report`
+
+禁止：
+
+- 不允许把临时 Excel 当作正式业绩数据。
+- 不允许编造销售员、产品、客户业绩。
 
 ## 3. sales-summary-agent
 

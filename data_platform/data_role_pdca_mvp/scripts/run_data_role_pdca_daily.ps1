@@ -22,7 +22,18 @@ $argsList = @(
 
 if ($dataSources.sales_json -and (Test-Path -LiteralPath $dataSources.sales_json)) {
     $argsList += @("--sales-json", $dataSources.sales_json)
-} elseif ($dataSources.sales_xlsx -and (Test-Path -LiteralPath $dataSources.sales_xlsx)) {
+} else {
+    $Puller = Join-Path $Workspace "scripts\pull_vps_sales_data.ps1"
+    if (Test-Path -LiteralPath $Puller) {
+        $pulled = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Puller -Date $Date -Workspace $Workspace
+        $pulledPath = ($pulled | Select-Object -Last 1).Trim()
+        if ($pulledPath -and (Test-Path -LiteralPath $pulledPath)) {
+            $argsList += @("--sales-json", $pulledPath)
+        }
+    }
+}
+
+if (-not ($argsList -contains "--sales-json") -and $dataSources.allow_excel_demo -and $dataSources.sales_xlsx -and (Test-Path -LiteralPath $dataSources.sales_xlsx)) {
     $argsList += @("--sales-xlsx", $dataSources.sales_xlsx)
     if ($dataSources.sales_sheet) {
         $argsList += @("--sales-sheet", $dataSources.sales_sheet)
