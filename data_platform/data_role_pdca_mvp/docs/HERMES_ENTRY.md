@@ -23,10 +23,24 @@ data-role-pdca-mvp
 ## Hermes 应做的事
 
 1. 使用 `data-role-pdca-mvp` skill。
-2. 先运行 `scripts\pull_vps_sales_data.ps1` 从 VPS/Odoo 拉正式业绩数据。
+2. 先运行 `scripts\pull_vps_sales_data.ps1` 从 VPS/Odoo 拉正式海外经销商业绩数据。
 3. 再运行 `scripts\run_data_role_pdca_daily.ps1`。
 4. 读取输出并给用户摘要。
-5. 如果配置了 IM webhook，推送消息。
+5. 如果配置了 IM webhook，推送到 `经销商数据核对`。
+
+## 非技术入口
+
+双击：
+
+```text
+D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\run_data_role_pdca.bat
+```
+
+看板：
+
+```text
+D:\经销商PDCA\data_platform\data_role_pdca_mvp\outputs\YYYY-MM-DD\dashboard.html
+```
 
 ## 正式业绩数据口径
 
@@ -38,10 +52,16 @@ data-role-pdca-mvp
   - `vertu odoo data sandbox`
 - 使用数据表：
   - `sale_order_line_report`
+- 组织范围：
+  - `level1_department_id = 1569`，海外事业部
+  - `level2_department_id = 1577`，经销商
 - 经销商口径：
   - `agent_sale`
   - `agent_sale_replacement`
   - `agent_sale_return`
+- 海外范围：
+  - `level1_department_id = 1569`（海外事业部）
+  - `level2_department_id = 1577`（经销商）
 
 ## 不能做的事
 

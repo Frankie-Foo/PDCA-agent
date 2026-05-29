@@ -62,6 +62,7 @@ python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_
 - `outputs/YYYY-MM-DD/todo_reminder.md`
 - `outputs/YYYY-MM-DD/data_summary_report.md`
 - `outputs/YYYY-MM-DD/YYYY-MM-DD_data_summary.xlsx`
+- `outputs/YYYY-MM-DD/dashboard.html`
 - `outputs/YYYY-MM-DD/logistics_check_report.md`
 - `outputs/YYYY-MM-DD/pdca_daily_check.md`
 - `outbox/YYYY-MM-DD_im_message.md`
@@ -69,7 +70,7 @@ python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_
 ## 下一步接入点
 
 - VPS/Hermes 代办来源：`scripts/todo_source_vps.py`
-- Odoo/VPS 数据来源：复用 `daily_dealer_report` 和 `dealer_sale_analysis`
+- Odoo/VPS 数据来源：`sale_order_line_report`，仅取海外事业部 / 经销商
 - 金山文档物流单号：`inputs/logistics_tracking_template.csv` 先演示，后续接金山 API/导出文件
 - IM 推送：读取 `DEALER_IM_WEBHOOK_URL`
 

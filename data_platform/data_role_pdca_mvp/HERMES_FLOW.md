@@ -14,7 +14,11 @@ powershell -ExecutionPolicy Bypass -File D:\经销商PDCA\data_platform\data_rol
 Hermes
 -> todo-planner-agent
 -> data-summary-router-agent
+-> vps-sales-data-agent
+-> sales-summary-agent / product-summary-agent / customer-summary-agent
+-> chart-packaging-agent
 -> logistics-tracking-agent
+-> logistics-browser-agent
 -> pdca-questionnaire-agent
 -> pdca-check-act-agent
 -> im-notifier-agent
@@ -41,8 +45,18 @@ Hermes
 
 ## 任务 2：数据汇总
 
+正式数据只取海外经销商：
+
+```text
+VPS/Odoo table: sale_order_line_report
+level1_department_id: 1569 / 海外事业部
+level2_department_id: 1577 / 经销商
+sale_type: agent_sale / agent_sale_replacement / agent_sale_return
+```
+
 维度：
 
+- 团队
 - 销售员
 - 产品
 - 客户
@@ -102,6 +116,12 @@ Hermes
 
 ```text
 outbox/YYYY-MM-DD_im_message.md
+```
+
+目标群：
+
+```text
+经销商数据核对
 ```
 
 真实推送需要配置：

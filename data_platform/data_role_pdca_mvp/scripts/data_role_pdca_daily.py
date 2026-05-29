@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import urllib.request
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -52,6 +53,15 @@ def load_json(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def load_optional_json(path):
+    if not path or not path.exists():
+        return {}
+    try:
+        return load_json(path)
+    except json.JSONDecodeError:
+        return {}
+
+
 def parse_date(value):
     if value is None:
         return None
@@ -75,6 +85,10 @@ def money(value):
         return float(str(value).replace(",", ""))
     except ValueError:
         return 0.0
+
+
+def to_wan(value):
+    return round(money(value) / 10000, 2)
 
 
 def text(value):
@@ -141,6 +155,8 @@ def read_sales_summary_json(path, aliases=None):
             result = payload["execution"].get("result")
         if result is None:
             result = payload.get("result")
+        if result is None and isinstance(payload.get("ai"), dict):
+            result = payload["ai"].get("result")
     if not isinstance(result, dict) or not result.get("summary_mode"):
         return None
 
@@ -158,12 +174,47 @@ def read_sales_summary_json(path, aliases=None):
             })
         return converted
 
+    trend_sales = [
+        {
+            "day": text(row.get("day_label")),
+            "dimension": aliases.get(text(row.get("salesperson")), text(row.get("salesperson"))),
+            "performance": money(row.get("performance")),
+            "quantity": money(row.get("quantity")),
+        }
+        for row in result.get("daily_trend_by_salesperson") or []
+    ]
+    daily_salesperson = convert(result.get("daily_salesperson_summary"), "salesperson")
+    daily_fallback_day = ""
+    if not daily_salesperson and trend_sales:
+        latest_day = max(row.get("day", "") for row in trend_sales)
+        daily_fallback_day = latest_day
+        daily_salesperson = sorted(
+            [
+                {
+                    "dimension": row.get("dimension", ""),
+                    "performance": row.get("performance", 0),
+                    "quantity": row.get("quantity", 0),
+                    "rows": 0,
+                }
+                for row in trend_sales
+                if row.get("day") == latest_day
+            ],
+            key=lambda item: item["performance"],
+            reverse=True,
+        )
+
     return {
         "source": result.get("source", "VPS/Odoo"),
         "table": result.get("table", ""),
         "salesperson": convert(result.get("salesperson_summary"), "salesperson"),
         "product": convert(result.get("product_summary"), "product_name"),
         "customer": convert(result.get("customer_summary"), "partner_name"),
+        "daily_salesperson": daily_salesperson,
+        "week_salesperson": convert(result.get("week_salesperson_summary"), "salesperson"),
+        "daily_team": convert(result.get("daily_team_summary"), "team"),
+        "week_team": convert(result.get("week_team_summary"), "team"),
+        "daily_trend_by_salesperson": trend_sales,
+        "daily_fallback_day": daily_fallback_day,
     }
 
 
@@ -296,6 +347,277 @@ def top_table(rows):
     return "\n".join(parts)
 
 
+def norm_name(value):
+    return re.sub(r"[\s\-'\"“”\.，,()（）]+", "", str(value or "")).upper()
+
+
+def dashboard_store_data(workspace, chart_data):
+    customer_rows = chart_data.get("customer_top", [])
+    customer_detail = []
+    for row in customer_rows[:20]:
+        perf = to_wan(row.get("performance", 0))
+        qty = int(money(row.get("quantity", 0)))
+        customer_detail.append({
+            "name": row.get("dimension", ""),
+            "performance": perf,
+            "pickupAmount": perf,
+            "pickupQty": qty,
+            "orderPerformance": perf,
+            "vpsUsage": None,
+            "inboundQty": None,
+            "activationQty": None,
+            "walkinQty": None,
+            "inTransitPerformance": None,
+        })
+
+    perf_map = {norm_name(row.get("dimension")): row for row in customer_rows}
+    dealers_cfg = load_optional_json(workspace / "config" / "dealers.json")
+    dealers = dealers_cfg.get("dealers", []) if isinstance(dealers_cfg, dict) else []
+    region_map = {}
+    for dealer in dealers:
+        region = dealer.get("region") or "其他"
+        country = dealer.get("country") or "未分组"
+        row = perf_map.get(norm_name(dealer.get("name")), {})
+        perf = to_wan(row.get("performance", 0))
+        qty = int(money(row.get("quantity", 0)))
+        entry = {
+            "name": dealer.get("name", ""),
+            "nickname": dealer.get("nickname", ""),
+            "salesperson": dealer.get("salesperson", ""),
+            "perf": perf,
+            "qty": qty,
+            "pickupAmount": perf if row else None,
+            "pickupQty": qty if row else None,
+            "vpsUsage": None,
+            "inboundQty": None,
+            "activationQty": None,
+            "walkinQty": None,
+            "orderPerformance": perf if row else None,
+            "inTransitPerformance": None,
+        }
+        region_map.setdefault(region, {}).setdefault(country, []).append(entry)
+
+    dealer_region = []
+    for region, countries in region_map.items():
+        country_list = []
+        region_perf = 0
+        region_qty = 0
+        for country, entries in countries.items():
+            entries = sorted(entries, key=lambda item: item.get("perf", 0), reverse=True)
+            country_perf = round(sum(item.get("perf", 0) for item in entries), 2)
+            country_qty = sum(item.get("qty", 0) for item in entries)
+            region_perf += country_perf
+            region_qty += country_qty
+            country_list.append({
+                "country": country,
+                "perf": country_perf,
+                "qty": country_qty,
+                "dealers": entries,
+            })
+        dealer_region.append({
+            "region": region,
+            "perf": round(region_perf, 2),
+            "qty": region_qty,
+            "countries": country_list,
+        })
+    dealer_region.sort(key=lambda item: item.get("perf", 0), reverse=True)
+    return customer_detail, dealer_region
+
+
+def inject_dashboard_store_data(html, workspace, chart_data):
+    customer_detail, dealer_region = dashboard_store_data(workspace, chart_data)
+    customer_rank = [
+        {"n": row.get("name", ""), "perf": row.get("performance", 0), "qty": row.get("pickupQty", 0)}
+        for row in customer_detail[:10]
+    ]
+    replacements = {
+        "CUSTOMER_RANK": customer_rank,
+        "CUSTOMER_DETAIL": customer_detail,
+        "DEALER_REGION": dealer_region,
+    }
+    for const_name, payload in replacements.items():
+        js = f"const {const_name}={json.dumps(payload, ensure_ascii=False)};"
+        pattern = rf"const {const_name}=.*?;\n"
+        if re.search(pattern, html, flags=re.S):
+            html = re.sub(pattern, js + "\n", html, count=1, flags=re.S)
+        else:
+            marker = "// ─── Simple deferred render ───"
+            html = html.replace(marker, js + "\n" + marker)
+    return html
+
+
+PERSON_NODE_MAP = {
+    "杨晶晶": "p-yangjj",
+    "王宇彤": "p-wangyt",
+    "何海文": "p-hehai",
+    "于冰": "p-yubing",
+    "Lydia": "p-lydia",
+    "Lina": "p-deh",
+    "尤文静": "p-youwj",
+}
+
+TEAM_MEMBERS = {
+    "tl-yang": ("杨晶晶组", ["杨晶晶", "王宇彤", "何海文"]),
+    "tl-yubing": ("于冰组", ["于冰", "Lydia"]),
+    "tl-deh": ("Lina组", ["Lina", "尤文静"]),
+}
+
+
+def product_pack(product_rows):
+    top_rows = product_rows[:6] or [{"dimension": "暂无", "performance": 0, "quantity": 0}]
+    names = [row.get("dimension", "")[:28] for row in top_rows]
+    qty = [round(money(row.get("quantity")), 2) for row in top_rows]
+    amt = [to_wan(row.get("performance")) for row in top_rows]
+    return {
+        "phoneBar": {"cats": [name[:14] for name in names], "qty": qty, "amt": amt},
+        "matPie": [{"name": name[:18], "value": qty[index]} for index, name in enumerate(names)],
+        "phoneTop": names,
+        "phoneTopVals": qty,
+        "iotTop": ["暂未接入VPS"],
+        "iotTopVals": [0],
+        "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]},
+        "iotPie": [{"name": "暂未接入VPS", "value": 0}],
+        "stackPhone": {"cats": names, "series": [{"name": "销量", "data": qty}]},
+        "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]},
+        "phoneIotTrend": {"phone": [sum(qty)], "iot": [0]},
+    }
+
+
+def period_payload(name, daily_perf, week_perf, month_perf, month_qty, products, rank_rows):
+    common = {
+        "todayVal": daily_perf,
+        "todayTgt": 0,
+        "todayPct": 0,
+        "todayHb": 0,
+        "todayTb": 0,
+        "yesterdayVal": 0,
+        "yesterdayTgt": 0,
+        "yesterdayPct": 0,
+        "yesterdayHb": 0,
+        "yesterdayTb": 0,
+        "weekVal": week_perf,
+        "weekTgt": 0,
+        "weekAr": 0,
+        "weekTp": 0,
+        "monthVal": month_perf,
+        "monthTgt": 0,
+        "monthHb": 0,
+        "monthTb": 0,
+        "monthAr": 0,
+        "monthTp": 0,
+        "rkW": rank_rows,
+        "rkM": rank_rows,
+        "todayRk": [],
+        "yesterdayRk": [],
+        "trend": [0, daily_perf, week_perf, month_perf],
+        "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []},
+        "trendSeries": [{"name": name, "data": [0, daily_perf, week_perf, month_perf], "color": "#3b6ef8"}],
+        "openRate": [[name], [100 if month_perf else 0]],
+        "rcData": [[name], [month_perf]],
+        "distData": [[1 if month_perf else 0]],
+        "top20Pie": [{"name": name, "value": month_perf}],
+        "orgMonth": {"okrTgt": 0, "actual": month_perf, "ar": 0, "tp": 0, "hb": 0, "tb": 0},
+        "dailyNote": "",
+        "phone": products.get("phoneBar"),
+        "iot": products.get("iotCombo"),
+        **products,
+    }
+    daily = dict(common)
+    weekly = dict(common)
+    monthly = dict(common)
+    daily["todayVal"] = daily_perf
+    weekly["todayVal"] = week_perf
+    monthly["todayVal"] = month_perf
+    return {"daily": daily, "weekly": weekly, "monthly": monthly}
+
+
+def inject_dashboard_org_data(html, chart_data):
+    products = product_pack(chart_data.get("product_top", []))
+    sales_map = {row.get("dimension"): row for row in chart_data.get("salesperson_top", [])}
+    daily_sales_map = {row.get("dimension"): row for row in chart_data.get("salesperson_daily", [])}
+    week_sales_map = {row.get("dimension"): row for row in chart_data.get("salesperson_week", [])}
+    daily_note = ""
+    if chart_data.get("daily_fallback_day"):
+        daily_note = f"当天无业绩，显示最近有数据日 {chart_data.get('daily_fallback_day')}。"
+    rank_rows = [
+        {"n": row.get("dimension", ""), "v": to_wan(row.get("performance", 0)), "q": int(money(row.get("quantity", 0)))}
+        for row in chart_data.get("salesperson_top", [])[:10]
+    ]
+
+    persons = {}
+    for name, node_id in PERSON_NODE_MAP.items():
+        row = sales_map.get(name, {})
+        daily_row = daily_sales_map.get(name, {})
+        week_row = week_sales_map.get(name, {})
+        persons[node_id] = period_payload(
+            name,
+            to_wan(daily_row.get("performance", 0)),
+            to_wan(week_row.get("performance", 0)),
+            to_wan(row.get("performance", 0)),
+            int(money(row.get("quantity", 0))),
+            products,
+            rank_rows,
+        )
+        persons[node_id]["daily"]["dailyNote"] = daily_note
+
+    teams = {}
+    for team_id, (team_name, members) in TEAM_MEMBERS.items():
+        total_perf = round(sum(to_wan(sales_map.get(member, {}).get("performance", 0)) for member in members), 2)
+        total_qty = sum(int(money(sales_map.get(member, {}).get("quantity", 0))) for member in members)
+        daily_perf = round(sum(to_wan(daily_sales_map.get(member, {}).get("performance", 0)) for member in members), 2)
+        week_perf = round(sum(to_wan(week_sales_map.get(member, {}).get("performance", 0)) for member in members), 2)
+        payload = period_payload(team_name, daily_perf, week_perf, total_perf, total_qty, products, rank_rows)
+        payload["daily"]["dailyNote"] = daily_note
+        for period in ("daily", "weekly", "monthly"):
+            payload[period]["trendSeries"] = [
+                {
+                    "name": member,
+                    "data": [
+                        0,
+                        to_wan(daily_sales_map.get(member, {}).get("performance", 0)),
+                        to_wan(week_sales_map.get(member, {}).get("performance", 0)),
+                        to_wan(sales_map.get(member, {}).get("performance", 0)),
+                    ],
+                    "color": ["#3b6ef8", "#22c55e", "#f97316"][idx % 3],
+                }
+                for idx, member in enumerate(members)
+            ]
+            period_map = daily_sales_map if period == "daily" else week_sales_map if period == "weekly" else sales_map
+            payload[period]["openRate"] = [members, [100 if period_map.get(member, {}).get("performance") else 0 for member in members]]
+            payload[period]["rcData"] = [members, [to_wan(period_map.get(member, {}).get("performance", 0)) for member in members]]
+            payload[period]["top20Pie"] = [{"name": member, "value": to_wan(sales_map.get(member, {}).get("performance", 0))} for member in members]
+            payload[period]["distData"] = [[len([member for member in members if period_map.get(member, {}).get("performance")])]]
+        teams[team_id] = payload
+
+    total_perf = round(sum(to_wan(row.get("performance", 0)) for row in chart_data.get("salesperson_top", [])), 2)
+    total_qty = sum(int(money(row.get("quantity", 0))) for row in chart_data.get("salesperson_top", []))
+    daily_total = round(sum(to_wan(row.get("performance", 0)) for row in chart_data.get("salesperson_daily", [])), 2)
+    week_total = round(sum(to_wan(row.get("performance", 0)) for row in chart_data.get("salesperson_week", [])), 2)
+    director_payload = period_payload("经销商", daily_total, week_total, total_perf, total_qty, products, rank_rows)
+    director_payload["daily"]["dailyNote"] = daily_note
+    for period in ("daily", "weekly", "monthly"):
+        source_rows = chart_data.get("salesperson_daily", []) if period == "daily" else chart_data.get("salesperson_week", []) if period == "weekly" else chart_data.get("salesperson_top", [])
+        names = [row.get("dimension", "") for row in source_rows]
+        vals = [to_wan(row.get("performance", 0)) for row in source_rows]
+        director_payload[period]["trendSeries"] = [{"name": "经销商", "data": [0, daily_total, week_total, total_perf], "color": "#3b6ef8"}]
+        director_payload[period]["openRate"] = [names, [100 if val else 0 for val in vals]]
+        director_payload[period]["rcData"] = [names, vals]
+        director_payload[period]["top20Pie"] = [{"name": name, "value": vals[idx]} for idx, name in enumerate(names)]
+        director_payload[period]["distData"] = [[len([val for val in vals if val > 0])]]
+    director = {"dir-dealer": director_payload}
+
+    replacements = {
+        "PERSONS": persons,
+        "TL": teams,
+        "DIR": director,
+    }
+    for const_name, payload in replacements.items():
+        js = f"const {const_name}={json.dumps(payload, ensure_ascii=False)};"
+        pattern = rf"const {const_name}=.*?;\n"
+        html = re.sub(pattern, js + "\n", html, count=1, flags=re.S)
+    return html
+
+
 def write_dashboard(path, workspace, date_text, pending_todos, logistics_rows, chart_data):
     template_path = workspace / "templates" / "dashboard_template.html"
     template = template_path.read_text(encoding="utf-8")
@@ -309,6 +631,8 @@ def write_dashboard(path, workspace, date_text, pending_todos, logistics_rows, c
     html = html.replace("{{salesperson_table}}", top_table(chart_data.get("salesperson_top", [])))
     html = html.replace("{{product_table}}", top_table(chart_data.get("product_top", [])))
     html = html.replace("{{customer_table}}", top_table(chart_data.get("customer_top", [])))
+    html = inject_dashboard_org_data(html, chart_data)
+    html = inject_dashboard_store_data(html, workspace, chart_data)
     write(path, html)
 
 
@@ -401,6 +725,12 @@ def build_data_summary(workspace, date_text, day_out, sales_xlsx=None, sales_jso
         "salesperson_top": summaries["销售员汇总"][:10],
         "product_top": summaries["产品汇总"][:10],
         "customer_top": summaries["客户汇总"][:10],
+        "salesperson_daily": (vps_summary or {}).get("daily_salesperson", [])[:10],
+        "salesperson_week": (vps_summary or {}).get("week_salesperson", [])[:10],
+        "team_daily": (vps_summary or {}).get("daily_team", [])[:10],
+        "team_week": (vps_summary or {}).get("week_team", [])[:10],
+        "salesperson_trend": (vps_summary or {}).get("daily_trend_by_salesperson", []),
+        "daily_fallback_day": (vps_summary or {}).get("daily_fallback_day", ""),
     }
     return "\n".join(lines), chart_data, workbook_path
 
@@ -562,6 +892,7 @@ def main():
     parser.add_argument("--sales-xlsx")
     parser.add_argument("--sales-sheet")
     parser.add_argument("--sales-json")
+    parser.add_argument("--start-date")
     parser.add_argument("--allow-excel-demo", action="store_true")
     parser.add_argument("--logistics-csv")
     parser.add_argument("--push", action="store_true")

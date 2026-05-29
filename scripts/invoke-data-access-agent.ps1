@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $workspace = Resolve-Path (Join-Path $PSScriptRoot "..")
 $workspace = $workspace.Path
@@ -57,7 +59,9 @@ Rules:
 
 Push-Location $workspace
 try {
-  $result = & $hermesExe -z $prompt
+  # --max-turns 15: 超过 15 步强制终止，防止死循环
+  # 超时 120s 兜底
+  $result = & $hermesExe chat -q $prompt -Q --max-turns 15 2>&1
 } finally {
   Pop-Location
 }
@@ -77,4 +81,4 @@ $result
 "@
 
 Set-Content -LiteralPath $outFile -Value $content -Encoding UTF8
-Write-Host $outFile
+Write-Output $outFile

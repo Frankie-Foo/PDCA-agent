@@ -1,6 +1,6 @@
 # 数据岗位 PDCA MVP Agents
 
-实际落地版共 9 个 Agent。所有入口都应由 Hermes 调度；Cursor 只作为工作台。
+实际落地版共 12 个 Agent。所有入口都应由 Hermes 调度；Cursor 只作为工作台。
 
 ## 1. todo-planner-agent
 
@@ -32,7 +32,7 @@
 
 - 汇总任务清单
 
-## 2a. vps-sales-data-agent
+## 3. vps-sales-data-agent
 
 职责：
 
@@ -50,32 +50,32 @@
 - 不允许把临时 Excel 当作正式业绩数据。
 - 不允许编造销售员、产品、客户业绩。
 
-## 3. sales-summary-agent
+## 4. sales-summary-agent
 
 职责：
 
 - 按销售员汇总业绩、数量、回款、在途。
 
-## 4. product-summary-agent
+## 5. product-summary-agent
 
 职责：
 
 - 按产品/品类/系列汇总业绩和数量。
 
-## 5. customer-summary-agent
+## 6. customer-summary-agent
 
 职责：
 
 - 按客户/经销商汇总业绩、数量、回款、在途。
 
-## 6. chart-packaging-agent
+## 7. chart-packaging-agent
 
 职责：
 
 - 把汇总表生成图表数据和可视化建议。
-- MVP 先输出 JSON 和 Markdown，后续可接 Excel 图表。
+- 输出 Excel、图表数据 JSON 和 HTML 数据看板。
 
-## 7. logistics-tracking-agent
+## 8. logistics-tracking-agent
 
 职责：
 
@@ -88,7 +88,15 @@ MVP 规则：
 - 如果没有官方 API key 或网页权限，先生成待查 URL 和人工核对清单。
 - 不伪造物流状态。
 
-## 8. pdca-questionnaire-agent
+## 9. logistics-browser-agent
+
+职责：
+
+- 在没有官方 API key 时，调用浏览器进入 UPS/FedEx/DHL 等官网查询页。
+- 把官网页面中的最新状态交给 `logistics-tracking-agent` 判断。
+- 查询失败时输出“待人工确认”，不能补假状态。
+
+## 10. pdca-questionnaire-agent
 
 职责：
 
@@ -96,14 +104,14 @@ MVP 规则：
 - 读取问卷答案。
 - 把答案转为完成事项、遗留事项和明日计划。
 
-## 9. pdca-check-act-agent
+## 11. pdca-check-act-agent
 
 职责：
 
 - 汇总今日代办、问卷、数据汇总、物流检查。
 - 生成每日 Check 和次日 Act。
 
-## 10. im-notifier-agent
+## 12. im-notifier-agent
 
 职责：
 

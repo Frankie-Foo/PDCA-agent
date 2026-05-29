@@ -49,6 +49,8 @@ python D:\经销商PDCA\data_platform\data_role_pdca_mvp\scripts\data_role_pdca_
 ```text
 outputs\YYYY-MM-DD\todo_reminder.md
 outputs\YYYY-MM-DD\data_summary_report.md
+outputs\YYYY-MM-DD\dashboard.html
+outputs\YYYY-MM-DD\YYYY-MM-DD_data_summary.xlsx
 outputs\YYYY-MM-DD\logistics_check_report.md
 outputs\YYYY-MM-DD\pdca_daily_check.md
 outbox\YYYY-MM-DD_im_message.md
@@ -74,6 +76,7 @@ vps-cli skill: odoo-sandbox-script-guide
 command: vertu odoo data sandbox
 table: sale_order_line_report
 dealer sale_type: agent_sale / agent_sale_replacement / agent_sale_return
+scope: level1_department_id=1569 and level2_department_id=1577
 ```
 
 Excel input is allowed only when the command explicitly uses `--allow-excel-demo`.
@@ -81,10 +84,13 @@ Do not present Excel-derived numbers as official performance.
 
 ## Agent Roles
 
+- `vps-sales-data-agent`
+- `data-summary-router-agent`
 - `todo-planner-agent`
 - `sales-summary-agent`
 - `product-summary-agent`
 - `customer-summary-agent`
+- `chart-packaging-agent`
 - `logistics-tracking-agent`
 - `logistics-browser-agent`
 - `pdca-questionnaire-agent`
