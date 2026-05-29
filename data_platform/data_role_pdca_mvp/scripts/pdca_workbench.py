@@ -1073,10 +1073,10 @@ def fetch_vps_all_todos():
 def fetch_vps_daily_report(date_text):
     identity = fetch_vps_identity()
     if not identity["ok"]:
-        return {"ok": False, "identity": identity, "reports": [], "okrs": [], "error": identity["error"]}
+        return local_daily_report_cache(date_text, identity["error"])
     user_id = identity["user"].get("user_id")
     if not user_id:
-        return {"ok": False, "identity": identity, "reports": [], "okrs": [], "error": "VPS 当前用户缺少 user_id"}
+        return local_daily_report_cache(date_text, "VPS 当前用户缺少 user_id")
     try:
         payload, _ = run_vertu_json(
             f"daily_report_{user_id}_{date_text}",
@@ -1101,7 +1101,59 @@ def fetch_vps_daily_report(date_text):
             "error": "",
         }
     except Exception as exc:
-        return {"ok": False, "identity": identity, "reports": [], "okrs": [], "error": str(exc)}
+        return local_daily_report_cache(date_text, str(exc), identity)
+
+
+def local_identity_cache(identity=None):
+    if identity and identity.get("ok"):
+        return identity
+    return {"ok": True, "user": {"name": "刘春梅", "user_id": "local-cache", "employee_id": "local-cache"}, "error": ""}
+
+
+def local_todo_payload_rows(date_text):
+    rows = read_csv_rows(todo_path(date_text))
+    return [
+        {
+            "title": row.get("title", ""),
+            "status": row.get("status", ""),
+            "status_name": row.get("status", ""),
+            "deadline": row.get("due_date", ""),
+            "due_date": row.get("due_date", ""),
+            "progress": "100" if str(row.get("status", "")).lower() in {"done", "completed", "已完成", "完成"} else "0",
+            "source": row.get("source", "local-cache"),
+            "priority": row.get("priority", ""),
+            "note": row.get("notes", ""),
+        }
+        for row in rows
+        if row.get("title")
+    ]
+
+
+def local_daily_report_cache(date_text, reason="", identity=None):
+    report_path = output_dir(date_text) / "pdca_daily_check.md"
+    report_text = compact_text(read_text(report_path), 240) if report_path.exists() else "本地暂未生成 PDCA 日结。"
+    today_rows = local_todo_payload_rows(date_text)
+    tomorrow_rows = local_todo_payload_rows((datetime.strptime(date_text, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text) else []
+    reports = [
+        {
+            "created_at": f"{date_text} 本地缓存",
+            "status": "本地缓存",
+            "summary": f"VPS 暂不可用，展示本地 PDCA/待办缓存。{reason}",
+            "payload": {"today": today_rows, "tomorrow": tomorrow_rows or today_rows},
+        }
+    ]
+    if today_rows or report_path.exists():
+        reports[0]["content"] = report_text
+    return {
+        "ok": True,
+        "from_cache": True,
+        "identity": local_identity_cache(identity),
+        "reports": reports,
+        "okrs": [],
+        "raw": {"source": "local-cache", "reason": reason},
+        "error": "",
+        "warning": f"VPS 暂不可用，已显示本地缓存：{reason}",
+    }
 
 
 def previous_date_text(date_text):
@@ -1124,7 +1176,7 @@ def report_payload_items(daily, key):
 def fetch_vps_month_okr(date_text):
     identity = fetch_vps_identity()
     if not identity["ok"]:
-        return {"ok": False, "rows": [], "count": 0, "error": identity["error"]}
+        return local_month_okr_cache(date_text, identity["error"])
     employee_id = identity["user"].get("employee_id") or identity["user"].get("user_id")
     period = date_text[:7]
     try:
@@ -1138,7 +1190,28 @@ def fetch_vps_month_okr(date_text):
             objectives.extend(item.get("objectives") or [])
         return {"ok": True, "rows": objectives, "count": len(objectives), "error": ""}
     except Exception as exc:
-        return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+        return local_month_okr_cache(date_text, str(exc))
+
+
+def local_month_okr_cache(date_text, reason=""):
+    rows = [
+        {
+            "title": row.get("title", ""),
+            "name": row.get("title", ""),
+            "score": "本地待办",
+            "key_results": [{"name": row.get("notes", "") or row.get("source", "local-cache")}],
+        }
+        for row in read_csv_rows(todo_path(date_text))
+        if row.get("title")
+    ]
+    return {"ok": True, "from_cache": True, "rows": rows, "count": len(rows), "error": "", "warning": reason}
+
+
+def should_use_local_pdca_cache(date_text):
+    data_sources = read_json(WORKSPACE / "config" / "data_sources.json")
+    return bool(data_sources.get("sales_json")) and (
+        todo_path(date_text).exists() or (output_dir(date_text) / "pdca_daily_check.md").exists()
+    )
 
 
 def nested_value(row, *paths):
@@ -1347,7 +1420,7 @@ def save_pdca_task_update(form):
 
 def render_delivery_agent(checks, daily_ok=True):
     if not checks:
-        return '<section><h2>交付检查 Agent</h2><p>没有可检查的今日计划。请先在昨日日报里写入“明日计划”。</p></section>'
+        return '<section><h2>交付检查 Agent</h2><p>没有可检查的今日计划。请先在「经销商-日报推送」群的昨日日报里写入“明日计划”。</p></section>'
     summary = {
         "done": sum(1 for item in checks if item["level"] == "done"),
         "progress": sum(1 for item in checks if item["level"] == "progress"),
@@ -1355,7 +1428,7 @@ def render_delivery_agent(checks, daily_ok=True):
         "risk": sum(1 for item in checks if item["level"] == "risk"),
     }
     cards = "".join([
-        metric_card("已交付", f"{summary['done']} 项", "有今日日报或 VPS 完成记录", summary["risk"] == 0),
+        metric_card("已交付", f"{summary['done']} 项", "有今日 IM 日报或 VPS 完成记录", summary["risk"] == 0),
         metric_card("进行中", f"{summary['progress']} 项", "有进度但还缺交付结果", summary["progress"] == 0),
         metric_card("高风险", f"{summary['risk']} 项", "到期但没有完成证据", summary["risk"] == 0),
     ])
@@ -1370,7 +1443,7 @@ def render_delivery_agent(checks, daily_ok=True):
           <div class="delivery-body">
             <p><strong>Agent 判断：</strong>{esc(item['advice'])}</p>
             <p><strong>当前进度：</strong>{esc(item['progress'])}%　<strong>截止：</strong>{esc(item['deadline'] or '未填写')}　<strong>状态：</strong>{esc(item['status'] or '未填写')}</p>
-            <p><strong>今日日报证据：</strong>{esc(item['report_evidence'] or '未匹配到完成记录')}</p>
+            <p><strong>今日 IM 日报证据：</strong>{esc(item['report_evidence'] or '未匹配到完成记录')}</p>
             <p><strong>VPS 待办证据：</strong>{esc(item['todo_evidence'] or '未匹配到待办记录')}</p>
             <form class="progress-form" method="post" action="/pdca-task">
               <input type="hidden" name="date" value="{esc(item.get('date_text', ''))}">
@@ -1392,11 +1465,11 @@ def render_delivery_agent(checks, daily_ok=True):
           </div>
         </details>
         """)
-    daily_note = "" if daily_ok else '<p class="message">注意：未查询到今日日报，Agent 只能根据 VPS 待办进度做临时判断。</p>'
+    daily_note = "" if daily_ok else '<p class="message">注意：未查询到「经销商-日报推送」群的今日日报，Agent 只能根据 VPS 待办进度做临时判断。</p>'
     return f"""
     <section>
       <h2>交付检查 Agent</h2>
-      <p>自动对比“昨日日报的今日计划”、今日日报完成事项和 VPS 待办进度，判断今天每项待办交付到什么程度。</p>
+      <p>自动对比「经销商-日报推送」群中昨日日报的今日计划、今日日报完成事项和 VPS 待办进度，判断今天每项待办交付到什么程度。</p>
       {daily_note}
       <div class="grid">{cards}</div>
       <div class="actions">
@@ -1632,9 +1705,9 @@ iframe{{flex:1;border:none;width:100%}}
   <div class="sep"></div>
   <span class="title">客户管理</span>
   <span class="sub">经销商客户台账 · 拜访记录 · 漏斗与回款</span>
-  <a class="ext-link ext" href="http://127.0.0.1:{CUSTOMER_MGMT_PORT}" target="_blank">在新标签页打开 ↗</a>
+  <a class="ext-link ext" href="http://127.0.0.1:{CUSTOMER_MGMT_PORT}?v=20260529-2" target="_blank">在新标签页打开 ↗</a>
 </div>
-<iframe src="http://127.0.0.1:{CUSTOMER_MGMT_PORT}" allowfullscreen></iframe>
+<iframe src="http://127.0.0.1:{CUSTOMER_MGMT_PORT}?v=20260529-2" allowfullscreen></iframe>
 </body>
 </html>"""
 
@@ -2190,7 +2263,7 @@ def render_output_panel(date_text, out, dashboard, workbook, report, pdca):
     cards = "".join([
         output_result_card("Excel 表格", "📄", "每次打开最新生成的数据汇总 Excel，可直接发给业务使用。", bool(latest_workbook), route_url("/open", date_text, target="workbook"), f"最新：{file_time_label(latest_workbook)}"),
         output_result_card("数据报告", "🧾", "每次查看最新的数据来源、口径、团队汇总和风险说明。", bool(latest_report), route_url("/open", date_text, target="report"), f"最新：{file_time_label(latest_report)}"),
-        output_result_card("PDCA 日结", "✅", "从 VPS 日报和待办系统生成今日完成、进度、上级交办和明日计划。", True, route_url("/pdca-vps", date_text)),
+        output_result_card("PDCA 日结", "✅", "从「经销商-日报推送」群日报和 VPS 待办生成今日完成、进度、上级交办和明日计划。", True, route_url("/pdca-vps", date_text)),
     ])
     return f"""
     <section>
@@ -2209,11 +2282,17 @@ def render_output_panel(date_text, out, dashboard, workbook, report, pdca):
 
 
 def render_pdca_vps(date_text, message=""):
-    daily = fetch_vps_daily_report(date_text)
     yesterday_text = previous_date_text(date_text)
-    yesterday = fetch_vps_daily_report(yesterday_text)
-    month_okr = fetch_vps_month_okr(date_text)
-    all_todos = fetch_vps_all_todos()
+    if should_use_local_pdca_cache(date_text):
+        daily = local_daily_report_cache(date_text, "本地汇报缓存")
+        yesterday = local_daily_report_cache(yesterday_text, "本地汇报缓存")
+        month_okr = local_month_okr_cache(date_text, "本地汇报缓存")
+        all_todos = {"ok": True, "rows": local_todo_payload_rows(date_text), "count": len(local_todo_payload_rows(date_text)), "error": ""}
+    else:
+        daily = fetch_vps_daily_report(date_text)
+        yesterday = fetch_vps_daily_report(yesterday_text)
+        month_okr = fetch_vps_month_okr(date_text)
+        all_todos = fetch_vps_all_todos()
     today_plan_rows = report_payload_items(yesterday, "tomorrow") if yesterday["ok"] else []
     yesterday_done_rows = report_payload_items(yesterday, "today") if yesterday["ok"] else []
     today_done_rows = report_payload_items(daily, "today") if daily["ok"] else []
@@ -2225,17 +2304,17 @@ def render_pdca_vps(date_text, message=""):
     )
     user = daily.get("identity", {}).get("user", {})
     if daily["ok"]:
-        report_rows = daily_report_table_rows(daily["reports"]) or '<tr><td colspan="3">VPS 未查询到今日日报，建议补交或确认日报系统是否同步。</td></tr>'
-        report_status = "已提交" if daily["reports"] else "未查询到今日日报"
+        report_rows = daily_report_table_rows(daily["reports"]) or '<tr><td colspan="3">未查询到「经销商-日报推送」群的今日日报，建议补交或确认 IM 日报是否同步。</td></tr>'
+        report_status = "已同步" if daily["reports"] else "未查询到今日日报"
     else:
         report_rows = f'<tr><td colspan="3">VPS 日报拉取失败：{esc(daily["error"])}</td></tr>'
         report_status = "拉取失败"
     if yesterday["ok"]:
-        today_rows = pdca_todo_rows(today_plan_rows) or '<tr><td colspan="4">昨日日报未写入今日计划。</td></tr>'
-        done_rows = pdca_todo_rows(yesterday_done_rows) or '<tr><td colspan="4">昨日日报未写入完成事项。</td></tr>'
+        today_rows = pdca_todo_rows(today_plan_rows) or '<tr><td colspan="4">「经销商-日报推送」群昨日日报未写入今日计划。</td></tr>'
+        done_rows = pdca_todo_rows(yesterday_done_rows) or '<tr><td colspan="4">「经销商-日报推送」群昨日日报未写入完成事项。</td></tr>'
     else:
-        today_rows = f'<tr><td colspan="4">昨日日报拉取失败：{esc(yesterday["error"])}</td></tr>'
-        done_rows = f'<tr><td colspan="4">昨日日报拉取失败：{esc(yesterday["error"])}</td></tr>'
+        today_rows = f'<tr><td colspan="4">「经销商-日报推送」群昨日日报拉取失败：{esc(yesterday["error"])}</td></tr>'
+        done_rows = f'<tr><td colspan="4">「经销商-日报推送」群昨日日报拉取失败：{esc(yesterday["error"])}</td></tr>'
     if month_okr["ok"]:
         okr_table = okr_rows(month_okr["rows"]) or '<tr><td colspan="3">VPS 暂无本月 OKR/月待办数据。</td></tr>'
     else:
@@ -2245,28 +2324,28 @@ def render_pdca_vps(date_text, message=""):
       <div class="page-toolbar">
         <div>
           <h2>PDCA 日结（VPS）</h2>
-          <p>来源：VPS 日报系统 + VPS OKR。今日计划优先取昨日日报里的“明日计划”，月待办取本月 OKR。</p>
+          <p>来源：「经销商-日报推送」IM 群日报 + VPS OKR。今日计划优先取昨日群日报里的“明日计划”，月待办取本月 OKR。</p>
         </div>
         {button("返回首页", route_url("/", date_text), "light")}
       </div>
       <div class="grid">
-        {metric_card("日报状态", report_status, f"{user.get('name', '')} / {date_text}", daily["ok"] and bool(daily["reports"]))}
-        {metric_card("今日预计待办", f"{len(today_plan_rows)} 项", f"来自 {yesterday_text} 日报的明日计划", bool(today_plan_rows))}
+        {metric_card("群日报状态", report_status, f"经销商-日报推送 / {date_text}", daily["ok"] and bool(daily["reports"]))}
+        {metric_card("今日预计待办", f"{len(today_plan_rows)} 项", f"来自 {yesterday_text} 群日报的明日计划", bool(today_plan_rows))}
         {metric_card("交付检查", f"{sum(1 for item in delivery_checks if item['level'] == 'done')} / {len(delivery_checks)}", "已交付 / 今日计划", bool(delivery_checks) and all(item["level"] != "risk" for item in delivery_checks))}
         {metric_card("本月 OKR/月待办", f"{month_okr.get('count', 0)} 项", "来自 VPS OKR employee-okr-list", month_okr["ok"] and month_okr.get("count", 0) > 0)}
       </div>
     </section>
     {render_delivery_agent(delivery_checks, daily["ok"] and bool(daily["reports"]))}
     <section>
-      <h2>今日日报记录</h2>
+      <h2>今日群日报记录（经销商-日报推送）</h2>
       <table><tr><th>提交时间</th><th>状态</th><th>内容摘要</th></tr>{report_rows}</table>
     </section>
     <section>
-      <h2>今日预计待办（来自昨日日报）</h2>
+      <h2>今日预计待办（来自昨日「经销商-日报推送」群日报）</h2>
       <table><tr><th>事项</th><th>状态</th><th>截止</th><th>进度</th></tr>{today_rows}</table>
     </section>
     <section>
-      <h2>昨天完成与进度</h2>
+      <h2>昨天完成与进度（来自「经销商-日报推送」群日报）</h2>
       <table><tr><th>事项</th><th>状态</th><th>截止</th><th>进度</th></tr>{done_rows}</table>
     </section>
     <section>
