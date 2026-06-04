@@ -1,0 +1,332 @@
+{
+  "total": 33,
+  "teams": {
+    "Lina": 20,
+    "杨晶晶": 7,
+    "于冰": 6
+  },
+  "sample": [
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "AI-SARAF CO",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "Behzadi Boutique",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "阿联酋",
+      "dealerName": "Billionaire Collections",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "卡塔尔",
+      "dealerName": "CLICK TECH SERVICES",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "科威特",
+      "dealerName": "Dar Al Sabaek",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "HASSIB ABDALLAH AMIR ALLAH",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊朗",
+      "dealerName": "Luxem Store",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "约旦",
+      "dealerName": "Mkateb for e-commerce",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "阿塞拜疆",
+      "dealerName": "My Shops Electronics Trading LLC",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "Rashid lukman rashid",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊朗",
+      "dealerName": "Safiranhamrah",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊朗",
+      "dealerName": "TİVALİ Commercial Broker LLC",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "土耳其",
+      "dealerName": "Veysel Sevis Ltd",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "乌克兰",
+      "dealerName": "Bestcom",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "乌克兰",
+      "dealerName": "FRONTANA GIDA DIS TICARET LIMITED",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "波兰",
+      "dealerName": "IQ-QUEST SP. Z O.O.",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "斯洛文尼亚",
+      "dealerName": "Optimizers d.o.o.",
+      "customerType": "A",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "保加利亚",
+      "dealerName": "Robo Trading Ltd",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "英国",
+      "dealerName": "VERTU LONDON LTD",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "德国",
+      "dealerName": "vipconnect.de",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "杨晶晶",
+      "country": "土库曼斯坦",
+      "dealerName": "2024.1",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "杨晶晶",
+      "country": "乌兹别克斯坦",
+      "dealerName": "2024.3",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "杨晶晶",
+      "country": "俄罗斯",
+      "dealerName": "之前说开店，后面不开了，最终决定维护Konstantin权益",
+      "customerType": "B",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "杨晶晶",
+      "country": "俄罗斯",
+      "dealerName": "2024.3.28",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "杨晶晶",
+      "country": "印度",
+      "dealerName": "2023.12",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    }
+  ],
+  "top_amount": [
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "AI-SARAF CO",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "Behzadi Boutique",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "阿联酋",
+      "dealerName": "Billionaire Collections",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "卡塔尔",
+      "dealerName": "CLICK TECH SERVICES",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "科威特",
+      "dealerName": "Dar Al Sabaek",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "HASSIB ABDALLAH AMIR ALLAH",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊朗",
+      "dealerName": "Luxem Store",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "约旦",
+      "dealerName": "Mkateb for e-commerce",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "阿塞拜疆",
+      "dealerName": "My Shops Electronics Trading LLC",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊拉克",
+      "dealerName": "Rashid lukman rashid",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊朗",
+      "dealerName": "Safiranhamrah",
+      "customerType": "S",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "伊朗",
+      "dealerName": "TİVALİ Commercial Broker LLC",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "土耳其",
+      "dealerName": "Veysel Sevis Ltd",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "乌克兰",
+      "dealerName": "Bestcom",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    },
+    {
+      "team": "Lina",
+      "country": "乌克兰",
+      "dealerName": "FRONTANA GIDA DIS TICARET LIMITED",
+      "customerType": "",
+      "sellOutQty": 0.0,
+      "amount": 0.0
+    }
+  ]
+}

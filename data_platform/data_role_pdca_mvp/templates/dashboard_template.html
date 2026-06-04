@@ -17,21 +17,21 @@ echarts.init = function(dom, ...args) {
 </script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:'PingFang SC','Microsoft YaHei',-apple-system,sans-serif;background:#f0f2f7;color:#1a1d2e;font-size:13px}
-.topnav{height:44px;background:#0d0f1a;display:flex;align-items:center;padding:0 14px;gap:1px;position:fixed;top:0;left:0;right:0;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.5)}
-.nav-brand{font-size:13px;font-weight:700;color:#fff;white-space:nowrap;margin-right:8px}
-.ni{display:flex;align-items:center;gap:3px;padding:4px 9px;color:#a0a8be;font-size:12px;border-radius:5px;cursor:pointer;white-space:nowrap;transition:all .15s;user-select:none}
-.ni:hover{background:rgba(255,255,255,.08);color:#fff}
-.ni.active{background:rgba(59,110,248,.25);color:#fff;border:1px solid rgba(59,110,248,.45)}
-.ni.period.cur{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border:1px solid rgba(255,255,255,.2)}
-.ni.dealer-btn{margin-left:4px;border-left:1px solid rgba(255,255,255,.12);padding-left:13px}
-.ni.dealer-btn.cur{background:rgba(255,200,50,.18);color:#ffe57a;font-weight:600;border:1px solid rgba(255,200,50,.35)}
-.nsep{width:1px;height:18px;background:rgba(255,255,255,.1);margin:0 3px;flex-shrink:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;background:#f5f7fb;color:#1f2937;font-size:14px}
+.topnav{height:52px;background:#fff;display:flex;align-items:center;padding:0 20px;gap:8px;position:fixed;top:0;left:0;right:0;z-index:300;border-bottom:1px solid #e5e7eb;box-shadow:0 4px 14px rgba(15,23,42,.04)}
+.nav-brand{font-size:15px;font-weight:800;color:#111827;white-space:nowrap;margin-right:8px}
+.ni{display:flex;align-items:center;gap:3px;padding:8px 16px;color:#6b7280;font-size:13px;font-weight:600;border-radius:999px;cursor:pointer;white-space:nowrap;transition:all .15s;user-select:none;border:1px solid transparent}
+.ni:hover{background:#f3f4f6;color:#111827}
+.ni.active{background:#111827;color:#fff;border-color:#111827}
+.ni.period.cur{background:#111827;color:#fff;font-weight:600;border-color:#111827}
+.ni.dealer-btn{margin-left:4px;border-left:1px solid #e5e7eb;padding-left:13px}
+.ni.dealer-btn.cur{background:#f3f4f6;color:#111827;font-weight:600;border:1px solid #e5e7eb}
+.nsep{width:1px;height:18px;background:#e5e7eb;margin:0 3px;flex-shrink:0}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:1px}
-.rbar{position:fixed;top:44px;left:0;right:0;z-index:299;background:linear-gradient(90deg,#eef2ff,#f5f0ff);border-bottom:1px solid #dde3f5;text-align:center;padding:4px;font-size:11.5px;color:#6b7a9e}
-.rbar b{color:#7c5cbf;font-weight:600}
-.layout{display:flex;padding-top:68px;min-height:100vh}
-.sidebar{width:188px;flex-shrink:0;background:#fff;border-right:1px solid #e8ebf2;position:fixed;top:68px;bottom:0;left:0;overflow-y:auto;overflow-x:hidden;z-index:200;transition:width .22s ease}
+.rbar{position:fixed;top:52px;left:0;right:0;z-index:299;background:#fff;border-bottom:1px solid #e5e7eb;text-align:center;padding:8px;font-size:13px;color:#6b7280}
+.rbar b{color:#111827;font-weight:600}
+.layout{display:flex;padding-top:76px;min-height:100vh}
+.sidebar{width:188px;flex-shrink:0;background:#fff;border-right:1px solid #e5e7eb;position:fixed;top:76px;bottom:0;left:0;overflow-y:auto;overflow-x:hidden;z-index:200;transition:width .22s ease}
 .sidebar.collapsed{width:0}
 .sidebar::-webkit-scrollbar{width:3px}
 .sidebar::-webkit-scrollbar-thumb{background:#dde3f2;border-radius:2px}
@@ -39,8 +39,8 @@ html,body{height:100%;font-family:'PingFang SC','Microsoft YaHei',-apple-system,
 .s-hint{padding:2px 12px 6px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tnode{display:flex;align-items:center;padding:5px 10px;cursor:pointer;transition:background .12s;min-height:32px;border-left:3px solid transparent}
 .tnode:hover{background:#f5f7fb}
-.tnode.sel-dir{background:#eff3ff;border-left-color:#3b6ef8}
-.tnode.sel-dir .nn{color:#3b6ef8;font-weight:700}
+.tnode.sel-dir{background:#f3f4f6;border-left-color:#111827}
+.tnode.sel-dir .nn{color:#111827;font-weight:700}
 .tnode.sel-person{background:#e8f5e9;border-left-color:#22c55e}
 .tnode.sel-person .nn{color:#16a34a;font-weight:700}
 .tarr{width:12px;height:12px;flex-shrink:0;color:#c0c8d8;font-size:9px;display:flex;align-items:center;justify-content:center;transition:transform .18s;margin-right:2px;user-select:none}
@@ -53,15 +53,15 @@ html,body{height:100%;font-family:'PingFang SC','Microsoft YaHei',-apple-system,
 .i1{padding-left:16px}.i2{padding-left:30px}
 .tc{overflow:hidden;transition:max-height .22s ease}
 .cbtn{position:fixed;bottom:80px;left:176px;width:22px;height:38px;background:#fff;border:1px solid #e0e4ee;border-radius:0 20px 20px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:250;color:#9ca3af;font-size:11px;box-shadow:2px 0 5px rgba(0,0,0,.07);transition:left .22s ease}
-.cbtn:hover{color:#3b6ef8}.cbtn.out{left:0}
+.cbtn:hover{color:#111827}.cbtn.out{left:0}
 .main{margin-left:188px;flex:1;padding:14px 18px 40px;transition:margin-left .22s ease;min-width:0}
 .main.full{margin-left:0}
 /* shared */
-.card{background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px}
-.sec{font-size:13px;font-weight:700;color:#1a1d2e;display:flex;align-items:center;gap:7px;margin:16px 0 10px}
-.sec::before{content:'';display:block;width:3px;height:14px;background:#3b6ef8;border-radius:2px;flex-shrink:0}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px 20px;box-shadow:0 4px 14px rgba(15,23,42,.04)}
+.sec{font-size:15px;font-weight:800;color:#111827;display:flex;align-items:center;gap:7px;margin:16px 0 10px}
+.sec::before{content:'';display:block;width:3px;height:14px;background:#111827;border-radius:2px;flex-shrink:0}
 .sec .stag{font-size:11px;font-weight:400;color:#9ca3af}
-.sec .lnk{font-size:11px;font-weight:500;color:#3b6ef8;margin-left:auto;cursor:pointer}
+.sec .lnk{font-size:11px;font-weight:600;color:#111827;margin-left:auto;cursor:pointer}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
 .g1{margin-bottom:12px}
@@ -119,9 +119,13 @@ html,body{height:100%;font-family:'PingFang SC','Microsoft YaHei',-apple-system,
 .org-card.main{background:linear-gradient(135deg,#f0f4ff,#e8f0ff);border-color:#c7d7fb}
 .org-card-label{font-size:10px;font-weight:600;color:#7c5cbf;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
 .org-card-tag{font-size:10px;color:#9ca3af;margin-bottom:3px}
-.org-big{font-size:18px;font-weight:800;color:#1a1d2e;margin-bottom:2px}
+.org-big{font-size:22px;font-weight:800;color:#111827;margin:0;line-height:1.2;font-variant-numeric:tabular-nums}
+.org-kpi-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:6px}
+.org-kpi-main{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;text-align:left}
+.org-kpi-label{font-size:11px;color:#6b7280;margin:6px 0 4px;line-height:1.2}
+.org-kpi-donut{flex-shrink:0;width:60px;height:60px}
 .org-sub{font-size:11px;color:#9ca3af;margin-bottom:4px}
-.org-donut{position:relative;width:60px;height:60px;margin-bottom:4px}
+.org-donut{position:relative;width:60px;height:60px;margin:0}
 .org-donut svg{transform:rotate(-90deg)}
 .org-donut-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#7c5cbf}
 /* charts shared */
@@ -134,24 +138,24 @@ html,body{height:100%;font-family:'PingFang SC','Microsoft YaHei',-apple-system,
 .arc-wrap svg{transform:rotate(-90deg)}
 .arc-txt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
 @media(max-width:1100px){.g2,.tvy-cols,.double,.org-grid{grid-template-columns:1fr}}
-<style>
-.back-to-workbench{display:flex;align-items:center;gap:5px;color:#a8b4d8;text-decoration:none;font-size:12px;padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,.15);transition:background .15s;white-space:nowrap;margin-right:4px}
-.back-to-workbench:hover{background:rgba(255,255,255,.12);color:#fff}
+.back-to-workbench{display:flex;align-items:center;gap:5px;color:#111827;text-decoration:none;font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#f3f4f6;transition:background .15s;white-space:nowrap;margin-right:4px}
+.back-to-workbench:hover{background:#e5e7eb;color:#111827}
 </style>
+<link rel="stylesheet" href="/dashboard-theme.css?v=1">
 </head>
 <body>
 <nav class="topnav">
-  <a class="back-to-workbench" href="http://127.0.0.1:8765/" title="返回中台PDCA工作台">← 工作台</a>
+  <a class="back-to-workbench" href="/?date={{date}}" title="返回 PDCA 工作台">← 工作台</a>
   <div class="nsep"></div>
   <div class="nav-brand">海外经销商业绩驾驶舱</div>
   <div class="nsep"></div>
   <div class="ni period" id="pt-d" onclick="setPeriod('daily',this)">日报</div>
   <div class="ni period" id="pt-w" onclick="setPeriod('weekly',this)">周报</div>
   <div class="ni period" id="pt-m" onclick="setPeriod('monthly',this)">月报</div>
-  <div class="ni dealer-btn" id="pt-dealer" onclick="showDealerView(this)">🏪 门店</div>
+  <div class="ni dealer-btn" id="pt-dealer" onclick="showDealerView(this)">代理商</div>
 </nav>
 <div class="rbar">数据来源：VPS/Odoo · sale_order_line_report · 海外事业部 / 经销商
-<button onclick="forceRender()" style="margin-left:16px;padding:2px 10px;font-size:11px;background:#3b6ef8;color:#fff;border:none;border-radius:4px;cursor:pointer">🔄 刷新图表</button>&nbsp;&nbsp;上次：<b>2026-05-28 17:23:11</b>（1分钟前）</div>
+<button onclick="forceRender()" style="margin-left:16px;padding:6px 12px;font-size:12px;background:#111827;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">刷新图表</button>&nbsp;&nbsp;上次：<b>2026-05-28 17:23:11</b>（1分钟前）</div>
 <div class="layout">
 <aside class="sidebar" id="sidebar">
   <div class="s-lbl">有员工的部门 3</div>
@@ -541,15 +545,14 @@ function orgMonthCard(d){
     <div class="org-grid">
       <div class="org-card main">
         <div class="org-card-label">本月</div>
-        <div class="org-card-tag">OKR目标 &nbsp;<b style="color:#1a1d2e">${tgt.toFixed(2)}万</b></div>
-        <div style="display:flex;align-items:center;gap:10px">
-          ${donut(Math.min(ar,100),'#7c5cbf')}
-          <div>
-            <div style="font-size:10px;color:#9ca3af">实际达成</div>
+        <div class="org-kpi-row">
+          <div class="org-kpi-main">
+            <div class="org-card-tag">OKR目标 <b style="color:#111827">${tgt.toFixed(2)}万</b></div>
+            <div class="org-kpi-label">实际达成</div>
             <div class="org-big">${val.toFixed(2)}万</div>
-            <div style="font-size:11px;color:#9ca3af">定金: -1.00万</div>
-            <div style="font-size:11px;color:#9ca3af">退款: 0.00万</div>
+            <div class="org-sub">定金: -1.00万 · 退款: 0.00万</div>
           </div>
+          <div class="org-kpi-donut">${donut(Math.min(ar,100),'#7c5cbf')}</div>
         </div>
         <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">${badge(hb,'环比')}${badge(tb,'同比')}</div>
         <div style="font-size:10px;color:#22c55e;margin-top:4px">领先进度 ${(ar-tp).toFixed(1)}%</div>
@@ -632,12 +635,15 @@ function renderPerson(p){
     <div class="org-grid" style="margin-bottom:12px">
       <div class="org-card main">
         <div class="org-card-label">本月</div>
-        <div class="org-card-tag">OKR目标 <b>${(d.monthTgt||0).toFixed(2)}万</b></div>
-        <div style="display:flex;align-items:center;gap:8px">${donut(Math.min(d.monthAr,100),'#7c5cbf')}
-          <div><div class="org-big">${(d.monthVal||0).toFixed(2)}万</div>
-            <div style="font-size:11px;color:#9ca3af">退款 0.00万</div>
-            <div style="margin-top:4px;display:flex;gap:4px">${badge(d.monthHb,'环比')}${badge(d.monthTb,'同比')}</div>
+        <div class="org-kpi-row">
+          <div class="org-kpi-main">
+            <div class="org-card-tag">OKR目标 <b style="color:#111827">${(d.monthTgt||0).toFixed(2)}万</b></div>
+            <div class="org-kpi-label">实际达成</div>
+            <div class="org-big">${(d.monthVal||0).toFixed(2)}万</div>
+            <div class="org-sub">退款 0.00万</div>
+            <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${badge(d.monthHb,'环比')}${badge(d.monthTb,'同比')}</div>
           </div>
+          <div class="org-kpi-donut">${donut(Math.min(d.monthAr,100),'#7c5cbf')}</div>
         </div>
         ${bp(d.monthAr+'%','达成率','#22c55e',d.monthAr,'')}
         ${bp(d.monthTp+'%','时间进度','#f97316',d.monthTp,'')}

@@ -2,6 +2,7 @@ import csv
 import cgi
 import html
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -12,7 +13,7 @@ import webbrowser
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 
 WORKSPACE = Path(__file__).resolve().parents[1]
@@ -29,6 +30,431 @@ _VPS_CACHE = {}
 
 CUSTOMER_MGMT_ROOT = Path(r"C:\Users\frank\Documents\Codex\2026-05-27\pdca-codex-1-guru-electronics-singapore\he-haiwen-dealer-workbench")
 CUSTOMER_MGMT_PORT = 8787
+WALKIN_COCKPIT_DIR = WORKSPACE / "modules" / "walkin_cockpit"
+WALKIN_COCKPIT_ROOT = WALKIN_COCKPIT_DIR.resolve()
+ONLINE_COCKPIT_DIR = WORKSPACE / "modules" / "online_cockpit"
+ONLINE_COCKPIT_ROOT = ONLINE_COCKPIT_DIR.resolve()
+HOME_DASHBOARD_DIR = WORKSPACE / "modules" / "home_dashboard"
+HOME_DASHBOARD_ROOT = HOME_DASHBOARD_DIR.resolve()
+HOME_DASHBOARD_INDEX = HOME_DASHBOARD_DIR / "index.html"
+DEALER_REF_JSON = WALKIN_COCKPIT_DIR / "data" / "dealer_distribution_reference.json"
+CUSTOMER_TIER_TARGETS = {"S": 8, "A": 20, "B": 45, "C": 30}
+TIER_ESTIMATE_SELL_OUT = {"A": 1200000, "B": 650000, "S": 380000, "C": 280000}
+
+
+def resolve_cockpit_asset(base_dir, root_dir, rel_path):
+    """解析驾驶舱模块静态资源路径，禁止目录穿越。"""
+    rel = unquote((rel_path or "").lstrip("/"))
+    if not rel:
+        rel = "index.html"
+    parts = rel.replace("\\", "/").split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    target = (base_dir / rel).resolve()
+    if not str(target).startswith(str(root_dir)):
+        return None
+    if not target.is_file():
+        return None
+    return target
+
+
+def resolve_walkin_asset(rel_path):
+    return resolve_cockpit_asset(WALKIN_COCKPIT_DIR, WALKIN_COCKPIT_ROOT, rel_path)
+
+
+def resolve_online_asset(rel_path):
+    return resolve_cockpit_asset(ONLINE_COCKPIT_DIR, ONLINE_COCKPIT_ROOT, rel_path)
+
+
+def resolve_home_dashboard_asset(rel_path):
+    return resolve_cockpit_asset(HOME_DASHBOARD_DIR, HOME_DASHBOARD_ROOT, rel_path)
+
+
+def serve_home_dashboard_index(handler):
+    """经营驾驶舱首页（dashboard_template_with_api_hooks）。"""
+    if not HOME_DASHBOARD_INDEX.is_file():
+        handler.send_response(404)
+        handler.end_headers()
+        return
+    handler.send_file(HOME_DASHBOARD_INDEX)
+
+
+DASHBOARD_THEME_CSS = HOME_DASHBOARD_DIR / "workbench-unified.css"
+DASHBOARD_THEME_MARKER = "workbench-unified.css"
+COCKPIT_SHELL_CSS = HOME_DASHBOARD_DIR / "workbench-cockpit-shell.css"
+COCKPIT_SHELL_MARKER = "workbench-cockpit-shell.css"
+
+try:
+    from workbench_data import build_walkin_api_payload
+except ImportError:
+    build_walkin_api_payload = None
+
+
+def skin_cockpit_html(html, date_text, page_title="经销商驾驶舱"):
+    """客流/线上子页：统一浅色皮肤 + 顶栏返回工作台。"""
+    date_text = date_text or today_text()
+    back_href = f"/?date={date_text}"
+    if COCKPIT_SHELL_MARKER not in html and COCKPIT_SHELL_CSS.is_file():
+        shell_css = COCKPIT_SHELL_CSS.read_text(encoding="utf-8")
+        unified = ""
+        if DASHBOARD_THEME_CSS.is_file():
+            unified = DASHBOARD_THEME_CSS.read_text(encoding="utf-8")
+        html = html.replace(
+            "</head>",
+            f'<link rel="stylesheet" href="/workbench-cockpit-shell.css?v=2">\n'
+            f'<style id="wb-cockpit-skin">\n{unified}\n{shell_css}\n</style>\n</head>',
+            1,
+        )
+    if "wb-cockpit-backbar" not in html:
+        bar = (
+            f'<div class="wb-cockpit-backbar">'
+            f'<a class="back-to-workbench" href="{back_href}" title="返回 PDCA 工作台">← 返回工作台</a>'
+            f'<span class="wb-cockpit-title">{esc(page_title)}</span>'
+            f"</div>"
+        )
+        html = re.sub(r"(<body[^>]*>)", r"\1" + bar, html, count=1)
+    else:
+        html = re.sub(
+            r'(<a class="back-to-workbench" href=")[^"]*(")',
+            rf"\1{back_href}\2",
+            html,
+            count=1,
+        )
+    return html
+
+
+def skin_dashboard_html(html, date_text):
+    """为数据看板注入与主页一致的样式，并修正返回工作台链接。"""
+    if "wb-unified-skin" not in html and DASHBOARD_THEME_CSS.is_file():
+        theme_css = DASHBOARD_THEME_CSS.read_text(encoding="utf-8")
+        html = html.replace(
+            "</head>",
+            f'<style id="wb-unified-skin">\n{theme_css}\n</style>\n'
+            '<link rel="stylesheet" href="/dashboard-theme.css?v=1">\n</head>',
+            1,
+        )
+    back_href = f"/?date={date_text}"
+    html = re.sub(
+        r'(<a class="back-to-workbench" href=")[^"]*(")',
+        rf"\1{back_href}\2",
+        html,
+        count=1,
+    )
+    return html
+
+
+def serve_dashboard_html(handler, dashboard_path, date_text):
+    html = dashboard_path.read_text(encoding="utf-8")
+    handler.send_html(skin_dashboard_html(html, date_text))
+
+
+def load_dealer_reference():
+    if not DEALER_REF_JSON.is_file():
+        return []
+    try:
+        payload = json.loads(DEALER_REF_JSON.read_text(encoding="utf-8"))
+        return payload.get("dealers") or []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def fmt_cny(amount):
+    value = int(round(float(amount or 0)))
+    return f"¥ {value:,}"
+
+
+def dealer_sell_out_total(dealers):
+    total = sum(float(d.get("sellOutAmount") or 0) for d in dealers)
+    if total > 0:
+        return total, "代理商终销汇总"
+    estimate = 0.0
+    for dealer in dealers:
+        ctype = (dealer.get("customerType") or "S").upper()[:1]
+        estimate += TIER_ESTIMATE_SELL_OUT.get(ctype, 420000)
+    return estimate, "代理商终销汇总"
+
+
+def load_chart_data(date_text):
+    """读取当日 PDCA 生成的 chart_data.json（与数据看板同源）。"""
+    path = output_dir(date_text) / "chart_data.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def chart_performance_total(chart_data, period, date_text):
+    """
+    与数据看板「实际达成」同口径：VPS 销售员业绩合计。
+    月视图 = salesperson_top（看板本月 583.76万 即此字段之和）。
+    """
+    period_rows = {
+        "day": ("salesperson_daily", "今日"),
+        "week": ("salesperson_week", "本周"),
+        "month": ("salesperson_top", "本月"),
+        "quarter": ("salesperson_top", "本月累计"),
+    }
+    key, label = period_rows.get(period, period_rows["month"])
+    rows = chart_data.get(key) or []
+    total_yuan = sum(float(row.get("performance") or 0) for row in rows)
+    wan = round(total_yuan / 10000, 2)
+    return total_yuan, wan, f"{label}实际达成"
+
+
+def sell_in_from_chart(date_text, period):
+    chart = load_chart_data(date_text)
+    if not chart:
+        return None
+    return chart_performance_total(chart, period, date_text)
+
+
+def api_dashboard_overview(date_text, period):
+    identity = fetch_vps_identity()
+    user = identity.get("user") or {}
+    name = nested_value(user, "name", "display_name") or "数据岗"
+    role = nested_value(user, "job_title", "role") or "PDCA 工作台"
+    dealers = load_dealer_reference()
+    sell_out, sell_out_sub = dealer_sell_out_total(dealers)
+    sell_in_sub = ""
+    sell_in_wan = 0.0
+    chart_sell_in = sell_in_from_chart(date_text, period)
+    if chart_sell_in:
+        sell_in, sell_in_wan, sell_in_sub = chart_sell_in
+    else:
+        sell_in = sell_out * 1.28 if sell_out else 0
+        sell_in_sub = "待更新业绩数据"
+        sell_in_wan = round(sell_in / 10000, 2) if sell_in else 0
+    im_unread = fetch_vps_im_unread(with_latest=False)
+    todos = fetch_vps_today_todos()
+    out = output_dir(date_text)
+    pdca_path = out / "pdca_daily_check.md"
+    score = 88
+    comment = "昨日客户触达与待办推进正常，请关注 IM 未读与高优先级待办。"
+    if pdca_path.is_file():
+        text = pdca_path.read_text(encoding="utf-8", errors="ignore")[:800]
+        if "风险" in text or "高风险" in text:
+            score = 76
+            comment = "PDCA 日结提示存在风险项，请优先处理检查报告中的异常。"
+        elif text.strip():
+            comment = "已读取今日 PDCA 检查摘要，建议结合数据看板核对 Sell out 与过程指标。"
+    if not todos["ok"]:
+        score = max(70, score - 6)
+        comment += f" VPS 待办拉取异常：{todos['error'][:60]}"
+    elif todos["count"] > 5:
+        score = max(72, score - 4)
+        comment += f" 今日待办 {todos['count']} 项，建议按优先级逐条闭环。"
+    if im_unread["ok"] and im_unread["unread_count"] > 0:
+        score = max(68, score - 5)
+        comment += f" IM 未读 {im_unread['unread_count']} 条待处理。"
+    period_note = {"day": "日", "week": "周", "month": "月", "quarter": "季"}.get(period, "日")
+    return {
+        "managerName": name,
+        "managerRole": f"{role} · {period_note}视图 · {date_text}",
+        "sellInAmount": fmt_cny(sell_in),
+        "sellInWan": sell_in_wan,
+        "sellOutAmount": fmt_cny(sell_out),
+        "sellOutWan": round(sell_out / 10000, 2) if sell_out else 0,
+        "sellInSub": sell_in_sub,
+        "sellOutSub": sell_out_sub,
+        "agentScore": score,
+        "scoreComment": comment,
+    }
+
+
+def api_todos_today():
+    payload = fetch_vps_today_todos()
+    if not payload["ok"]:
+        return [{"id": 0, "title": f"VPS 待办拉取失败：{payload['error'][:80]}", "status": "异常"}]
+    items = []
+    for index, row in enumerate(payload["rows"][:12], start=1):
+        items.append({
+            "id": index,
+            "title": nested_value(row, "title", "name") or "未命名待办",
+            "status": nested_value(row, "status_name", "status.name", "stage_name") or "待处理",
+        })
+    return items
+
+
+def api_hermes_agent_tasks(date_text):
+    todos = api_todos_today()
+    tasks = []
+    for row in todos[:3]:
+        if "拉取失败" in row["title"]:
+            continue
+        tasks.append({"id": row["id"], "title": f"Hermes：跟进待办「{row['title']}」"})
+    if not tasks:
+        tasks = [
+            {"id": 1, "title": "Hermes：运行今日 PDCA 并刷新数据看板"},
+            {"id": 2, "title": "Hermes：核对代理商终销与 Walk-in 客流异常"},
+        ]
+    out = output_dir(date_text)
+    if not (out / "dashboard.html").exists():
+        tasks.insert(0, {"id": 0, "title": "Hermes：生成今日 dashboard.html"})
+    return tasks[:5]
+
+
+def api_customer_center_summary():
+    dealers = load_dealer_reference()
+    buckets = {"S": [], "A": [], "B": [], "C": []}
+    for dealer in dealers:
+        ctype = (dealer.get("customerType") or "S").upper()[:1]
+        if ctype not in buckets:
+            ctype = "C"
+        buckets[ctype].append(dealer)
+    result = []
+    for level in ("S", "A", "B", "C"):
+        rows = buckets[level]
+        target = CUSTOMER_TIER_TARGETS[level]
+        touched = min(target, len(rows))
+        result.append({"level": level, "total": len(rows), "touched": touched, "target": target})
+    if not dealers:
+        for level, target in CUSTOMER_TIER_TARGETS.items():
+            result.append({"level": level, "total": 0, "touched": 0, "target": target})
+    return result
+
+
+def api_hr_summary():
+    return [
+        {"key": "resume", "label": "简历数", "value": 0},
+        {"key": "interview", "label": "面试数", "value": 0},
+        {"key": "onboard", "label": "到岗数", "value": 0},
+        {"key": "leave", "label": "离职数", "value": 0},
+        {"key": "leaveRate", "label": "离职率", "value": "—"},
+    ]
+
+
+def api_exceptions(date_text):
+    business = []
+    affair = []
+    dealers = load_dealer_reference()
+    low_sell = [d for d in dealers if float(d.get("sellOutAmount") or 0) <= 0]
+    if low_sell:
+        business.append({
+            "owner": "代理商终销",
+            "content": f"{len(low_sell)} 家代理商终销金额为 0，请更新 Excel 后重跑导入脚本",
+        })
+    out = output_dir(date_text)
+    pdca_path = out / "pdca_daily_check.md"
+    if pdca_path.is_file():
+        for line in pdca_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            text = line.strip()
+            if not text.startswith("-") and "风险" not in text and "异常" not in text:
+                continue
+            if "日报" in text or "待办" in text:
+                affair.append({"owner": "PDCA", "content": text.lstrip("- ").strip()[:120]})
+            else:
+                business.append({"owner": "PDCA", "content": text.lstrip("- ").strip()[:120]})
+            if len(business) + len(affair) >= 6:
+                break
+    im_unread = fetch_vps_im_unread(with_latest=False)
+    if im_unread["ok"] and im_unread["unread_count"] > 0:
+        affair.append({
+            "owner": "IM",
+            "content": f"{im_unread['unread_count']} 条未读消息分布在 {im_unread['channel_count']} 个会话",
+        })
+    todos = fetch_vps_today_todos()
+    if todos["ok"] and todos["count"] > 8:
+        affair.append({"owner": "待办", "content": f"今日待办 {todos['count']} 项，存在积压风险"})
+    if not (out / "dashboard.html").exists():
+        business.append({"owner": "数据看板", "content": f"{date_text} 数据看板尚未生成，请运行 PDCA"})
+    return {"business": business[:6], "affair": affair[:6]}
+
+
+def api_important_matters(date_text):
+    matters = []
+    dealers = load_dealer_reference()
+    if dealers:
+        teams = {}
+        for d in dealers:
+            teams[d.get("team") or "未分组"] = teams.get(d.get("team") or "未分组", 0) + 1
+        top_team = max(teams.items(), key=lambda item: item[1])[0]
+        matters.append({
+            "id": 1,
+            "title": f"{top_team} 组代理商覆盖 {teams[top_team]} 家",
+            "desc": "建议对照 Walk-in 客流分析台检查低留资率代理商。",
+            "suggestion": "今日打开海外客流看板，筛选留资率偏低代理商并安排督导跟进。",
+        })
+    todos = fetch_vps_today_todos()
+    if todos["ok"] and todos["rows"]:
+        first = todos["rows"][0]
+        title = nested_value(first, "title", "name") or "待办"
+        matters.append({
+            "id": 2,
+            "title": f"优先待办：{title}",
+            "desc": "来自 VPS 今日待办列表。",
+            "suggestion": "今日内更新状态并同步到 PDCA 日结。",
+        })
+    if not matters:
+        matters.append({
+            "id": 1,
+            "title": "运行今日 PDCA",
+            "desc": "产出 Excel、报告与看板后驾驶舱指标将自动丰富。",
+            "suggestion": "执行 run_data_role_pdca_daily.ps1 或从经典首页触发运行。",
+        })
+    return matters[:4]
+
+
+def api_task_center_summary():
+    payload = fetch_vps_all_todos()
+    if not payload["ok"]:
+        return [
+            {"key": "total", "label": "总任务数", "value": "—"},
+            {"key": "done", "label": "已完成", "value": "—"},
+            {"key": "undone", "label": "未完成", "value": "—"},
+        ]
+    rows = payload["rows"]
+    done = 0
+    for row in rows:
+        status = str(nested_value(row, "status_name", "status.name", "stage_name")).lower()
+        if any(x in status for x in ("done", "完成", "closed", "cancel")):
+            done += 1
+    total = len(rows)
+    return [
+        {"key": "total", "label": "总任务数", "value": total},
+        {"key": "done", "label": "已完成", "value": done},
+        {"key": "undone", "label": "未完成", "value": max(0, total - done)},
+    ]
+
+
+def api_meeting_center_summary():
+    return [
+        {"key": "total", "label": "总会议数", "value": 0},
+        {"key": "interview", "label": "面试会议", "value": 0},
+        {"key": "report", "label": "汇报会议", "value": 0},
+        {"key": "customer", "label": "客户会议", "value": 0},
+    ]
+
+
+def dispatch_home_dashboard_api(path, query):
+    date_text = query.get("date", [today_text()])[0] or today_text()
+    period = query.get("period", ["day"])[0] or "day"
+    routes = {
+        "/api/dashboard/overview": lambda: api_dashboard_overview(date_text, period),
+        "/api/dashboard/sell-in": lambda: {
+            "amount": api_dashboard_overview(date_text, period)["sellInAmount"],
+            "wan": api_dashboard_overview(date_text, period)["sellInWan"],
+            "note": api_dashboard_overview(date_text, period)["sellInSub"],
+        },
+        "/api/dashboard/sell-out": lambda: {
+            "amount": api_dashboard_overview(date_text, period)["sellOutAmount"],
+        },
+        "/api/todos/today": api_todos_today,
+        "/api/hermes-agent/tasks": lambda: api_hermes_agent_tasks(date_text),
+        "/api/customer-center/summary": api_customer_center_summary,
+        "/api/hr/summary": api_hr_summary,
+        "/api/exceptions": lambda: api_exceptions(date_text),
+        "/api/important-matters": lambda: api_important_matters(date_text),
+        "/api/task-center/summary": api_task_center_summary,
+        "/api/meeting-center/summary": api_meeting_center_summary,
+    }
+    factory = routes.get(path)
+    if not factory:
+        return None
+    return factory()
+
+
 _customer_proc = None  # 客户管理后台进程句柄
 
 AGENT_CARDS = [
@@ -1758,6 +2184,48 @@ def dashboard_card(date_text, exists):
     """
 
 
+def walkin_cockpit_card():
+    """经销商海外客流分析台入口（modules/walkin_cockpit）。"""
+    return """
+    <a class="card ok entry-card entry-card-wide" href="/walkin-cockpit/">
+      <div class="entry-top">
+        <div>
+          <div class="label">海外客流</div>
+          <div class="state">打开分析台</div>
+        </div>
+        <span class="entry-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none">
+            <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </div>
+      <p>海外经销客流：代理商终销、大区与团队表现（墨绿主题）</p>
+    </a>
+    """
+
+
+def online_cockpit_card():
+    """经销商线上经营入口（已并入客流分析）。"""
+    return """
+    <a class="card ok entry-card entry-card-wide" href="/walkin-cockpit/#oi-merged">
+      <div class="entry-top">
+        <div>
+          <div class="label">线上经营</div>
+          <div class="state">打开驾驶舱</div>
+        </div>
+        <span class="entry-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none">
+            <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 15h8M8 11h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="17" cy="8" r="2" fill="currentColor"/>
+          </svg>
+        </span>
+      </div>
+      <p>经销商线上经营：OKR、渠道线索、区域汇总（已并入客流分析台）</p>
+    </a>
+    """
+
+
 def button(label, href, style=""):
     target = ' target="_blank" rel="noopener"' if str(href).startswith(("http://", "https://")) else ""
     return f'<a class="button {style}" href="{esc(href)}"{target}>{esc(label)}</a>'
@@ -1794,30 +2262,30 @@ def page(title, body, date_text, message=""):
   <title>{esc(title)}</title>
   <style>
     :root {{
-      --bg: #f7f5f0;
+      --bg: #eef4fb;
       --surface: #ffffff;
-      --surface-soft: #faf8f3;
-      --ink: #1f2230;
-      --ink-soft: #5b6172;
-      --ink-muted: #8b91a3;
-      --line: #e8e3d8;
-      --line-soft: #f0ece1;
-      --accent: #c4623a;
-      --accent-soft: #f5e6dd;
-      --accent-ink: #8a3d1f;
-      --success: #2f8a5b;
-      --warn: #c98a1b;
+      --surface-soft: #f6f9ff;
+      --ink: #17223a;
+      --ink-soft: #56647a;
+      --ink-muted: #8da0bb;
+      --line: #d7e3f2;
+      --line-soft: #e7eef8;
+      --accent: #2f6fed;
+      --accent-soft: #eaf2ff;
+      --accent-ink: #174fbf;
+      --success: #0f8a4b;
+      --warn: #b46a00;
       --shadow-sm: 0 1px 2px rgba(31,34,48,.05);
-      --shadow-md: 0 4px 18px rgba(31,34,48,.06);
-      --shadow-lg: 0 14px 38px rgba(31,34,48,.10);
+      --shadow-md: 0 10px 28px rgba(31,80,150,.10);
+      --shadow-lg: 0 18px 46px rgba(31,80,150,.16);
     }}
     * {{ box-sizing:border-box; }}
     body {{
-      margin:0; background:var(--bg); color:var(--ink);
+      margin:0; background:linear-gradient(180deg,#f6faff 0%, var(--bg) 240px); color:var(--ink);
       font-family:"Inter","SF Pro Text","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
       font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
     }}
-    h1,h2,h3 {{ font-family:"Inter","SF Pro Display","PingFang SC","Microsoft YaHei",system-ui,sans-serif; letter-spacing:-0.01em; }}
+    h1,h2,h3 {{ font-family:"Inter","SF Pro Display","PingFang SC","Microsoft YaHei",system-ui,sans-serif; letter-spacing:0; }}
     h2 {{ font-size:18px; margin:0 0 6px; font-weight:600; }}
     h3 {{ font-size:15px; margin:0 0 6px; font-weight:600; color:var(--ink); }}
     p {{ color:var(--ink-soft); margin:6px 0; }}
@@ -1832,20 +2300,23 @@ def page(title, body, date_text, message=""):
     }}
     textarea {{ width:100%; min-height:96px; resize:vertical; line-height:1.6; }}
     header {{
-      background:var(--surface); border-bottom:1px solid var(--line);
-      padding:22px 36px;
+      background:rgba(255,255,255,.9); border-bottom:1px solid var(--line);
+      padding:18px 36px;
+      backdrop-filter:blur(10px);
     }}
-    header h1 {{ margin:0 0 4px; font-size:20px; font-weight:600; color:var(--ink); }}
+    header h1 {{ margin:0 0 4px; font-size:20px; font-weight:700; color:var(--ink); }}
     header p {{ color:var(--ink-muted); margin:0; font-size:13px; }}
-    main {{ max-width:1180px; margin:0 auto; padding:28px 28px 56px; display:flex; flex-direction:column; gap:18px; }}
+    main {{ max-width:1440px; margin:0 auto; padding:24px 28px 56px; display:flex; flex-direction:column; gap:18px; }}
     section {{
-      background:var(--surface); border:1px solid var(--line); border-radius:14px;
+      background:var(--surface); border:1px solid var(--line); border-radius:18px;
       box-shadow:var(--shadow-sm); padding:22px 24px;
     }}
     section + section {{ margin-top:0; }}
     .grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; }}
+    .grid-secondary {{ margin-top:16px; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); }}
+    .entry-card-wide {{ min-height:88px; }}
     .card {{
-      background:var(--surface); border:1px solid var(--line); border-radius:14px;
+      background:var(--surface); border:1px solid var(--line); border-radius:18px;
       padding:18px; box-shadow:var(--shadow-sm); transition:transform .15s, box-shadow .15s, border-color .15s;
     }}
     .card.ok {{ border-top:3px solid var(--success); }}
@@ -1858,7 +2329,7 @@ def page(title, body, date_text, message=""):
     .state {{ font-size:24px; font-weight:600; margin:6px 0; color:var(--ink); }}
     .actions {{ display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 0; }}
     .button, button {{
-      border:0; border-radius:10px; background:var(--accent); color:white;
+      border:0; border-radius:12px; background:var(--accent); color:white;
       padding:10px 18px; font-size:14px; font-weight:600;
       text-decoration:none; cursor:pointer; display:inline-block; line-height:1.2;
       transition:background .15s, transform .05s;
@@ -1869,8 +2340,8 @@ def page(title, body, date_text, message=""):
     button:disabled {{ background:#d8c7bb; color:#fff; cursor:not-allowed; transform:none; opacity:.75; }}
     .button.secondary {{ background:var(--ink); }}
     .button.secondary:hover {{ background:#000; }}
-    .button.light {{ background:transparent; color:var(--ink-soft); border:1px solid var(--line); }}
-    .button.light:hover {{ background:var(--surface-soft); color:var(--ink); }}
+    .button.light {{ background:#fff; color:var(--accent-ink); border:1px solid #b9d1ff; }}
+    .button.light:hover {{ background:var(--accent-soft); color:var(--accent-ink); }}
     .button.danger {{ background:#c0413e; }}
     .thinking-inline {{ align-items:center; color:var(--ink-muted); display:none; gap:8px; font-size:13px; font-weight:600; }}
     .thinking-inline.on {{ display:inline-flex; }}
@@ -1948,7 +2419,100 @@ def page(title, body, date_text, message=""):
     .progress-form {{ align-items:end; background:var(--surface); border:1px solid var(--line); border-radius:12px; display:grid; gap:10px; grid-template-columns:120px 140px 1fr auto; margin-top:12px; padding:12px; }}
     .progress-form label {{ color:var(--ink-muted); font-size:12px; font-weight:600; }}
     .progress-form input, .progress-form select {{ margin-top:4px; width:100%; }}
-    @media (max-width:800px) {{ .two, .editor-layout {{ grid-template-columns:1fr; }} main {{ padding:18px 14px 36px; }} }}
+    .workbench-home {{ display:flex; flex-direction:column; gap:20px; }}
+    .period-tabs {{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:14px; }}
+    .period-tab {{
+      align-items:center; background:#fff; border:1px solid var(--line); border-radius:18px;
+      box-shadow:var(--shadow-sm); color:#233451; display:flex; font-size:17px; font-weight:800;
+      height:56px; justify-content:center; text-decoration:none;
+    }}
+    .period-tab.active {{ background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 14px 26px rgba(47,111,237,.22); }}
+    .home-top {{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; }}
+    .home-metric {{
+      background:rgba(255,255,255,.94); border:1px solid #cfe0f5; border-radius:22px;
+      box-shadow:var(--shadow-sm); min-height:118px; padding:18px;
+      display:flex; flex-direction:column; justify-content:space-between;
+    }}
+    .home-metric-row {{ align-items:center; display:flex; justify-content:space-between; gap:12px; }}
+    .home-metric-kicker {{ color:var(--ink-muted); font-size:12px; font-weight:700; text-transform:uppercase; }}
+    .home-metric-value {{ color:var(--ink); font-size:34px; font-weight:800; line-height:1; margin:10px 0 6px; }}
+    .home-chip {{ background:#edf5ff; border:1px solid #cddfff; border-radius:999px; color:var(--accent-ink); display:inline-flex; font-size:12px; font-weight:800; line-height:1; padding:7px 11px; white-space:nowrap; }}
+    .home-chip.ok {{ background:#e7f4ed; border-color:#cfe8d9; color:var(--success); }}
+    .home-chip.warn {{ background:#fff4dc; border-color:#ffd36e; color:var(--warn); }}
+    .home-board {{ display:grid; grid-template-columns:320px minmax(0, 1fr) 300px; gap:18px; align-items:start; }}
+    .home-stack {{ display:flex; flex-direction:column; gap:18px; }}
+    .home-panel {{
+      background:rgba(255,255,255,.94); border:1px solid #cfe0f5; border-radius:22px;
+      box-shadow:var(--shadow-sm); overflow:hidden;
+    }}
+    .home-panel-head {{
+      align-items:center; border-bottom:1px solid var(--line-soft); display:flex;
+      justify-content:space-between; gap:12px; min-height:54px; padding:14px 16px;
+    }}
+    .home-panel-head h2 {{ color:#15223a; font-size:18px; font-weight:800; margin:0; }}
+    .home-panel-body {{ padding:14px 16px 16px; }}
+    .home-todo-list {{ display:flex; flex-direction:column; }}
+    .home-todo {{
+      display:grid; grid-template-columns:24px 1fr auto; gap:10px; padding:11px 0;
+      border-bottom:1px solid var(--line-soft); align-items:start;
+    }}
+    .home-todo:last-child {{ border-bottom:0; }}
+    .home-check {{ border:1px solid #d7cfc0; border-radius:7px; height:22px; width:22px; }}
+    .home-todo b {{ display:block; font-size:14px; line-height:1.35; }}
+    .home-todo small {{ color:var(--ink-muted); display:block; font-size:12px; margin-top:3px; }}
+    .home-module-grid {{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; }}
+    .home-module {{
+      background:linear-gradient(180deg,#fff 0%, #f8fbff 100%); border:1px solid #cfe0f5; border-radius:18px;
+      color:inherit; display:flex; flex-direction:column; min-height:144px; padding:14px; text-decoration:none;
+    }}
+    .home-module:hover {{ border-color:#aecaef; box-shadow:var(--shadow-md); transform:translateY(-1px); }}
+    .home-module b {{ color:var(--ink); font-size:15px; margin-bottom:4px; }}
+    .home-module strong {{ color:var(--ink); display:block; font-size:30px; line-height:1; margin:14px 0 8px; }}
+    .home-module span {{ color:var(--ink-soft); font-size:13px; line-height:1.45; }}
+    .home-progress {{ background:#e1ebfa; border-radius:999px; height:8px; margin-top:auto; overflow:hidden; }}
+    .home-progress i {{ background:var(--accent); border-radius:inherit; display:block; height:100%; }}
+    .home-status-grid {{ border:1px solid #cfe0f5; border-radius:18px; display:grid; grid-template-columns:repeat(3, 1fr); margin-top:14px; overflow:hidden; }}
+    .home-status-cell {{ background:var(--surface); border-right:1px solid var(--line); padding:14px; }}
+    .home-status-cell:last-child {{ border-right:0; }}
+    .home-status-cell span {{ color:var(--ink-muted); font-size:12px; }}
+    .home-status-cell strong {{ display:block; font-size:24px; margin-top:4px; }}
+    .home-alert {{ display:grid; grid-template-columns:30px 1fr; gap:10px; padding:12px 0; border-bottom:1px solid var(--line-soft); }}
+    .home-alert:last-child {{ border-bottom:0; }}
+    .home-alert-icon {{ align-items:center; background:#edf5ff; border-radius:10px; color:var(--accent-ink); display:flex; font-weight:800; height:30px; justify-content:center; width:30px; }}
+    .home-alert b {{ display:block; font-size:13px; line-height:1.35; }}
+    .home-alert p {{ font-size:12px; line-height:1.45; margin:3px 0 0; }}
+    .home-important {{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }}
+    .home-note-list {{ margin:10px 0 0; padding-left:20px; color:var(--ink-soft); }}
+    .home-note-list li {{ margin:6px 0; }}
+    .home-mini-grid {{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; }}
+    .home-mini {{
+      background:linear-gradient(180deg,#fff 0%, #f8fbff 100%); border:1px solid #cfe0f5; border-radius:18px;
+      min-height:104px; padding:14px;
+    }}
+    .home-section-banner {{
+      align-items:center; background:linear-gradient(100deg,#16386d 0%, #2f6fed 100%);
+      border-radius:20px; color:#fff; display:flex; justify-content:space-between; gap:18px;
+      min-height:80px; padding:18px 22px;
+    }}
+    .home-section-banner strong {{ align-items:center; background:rgba(255,255,255,.16); border-radius:14px; display:inline-flex; font-size:18px; height:42px; justify-content:center; margin-right:14px; width:42px; }}
+    .home-section-banner h2 {{ align-items:center; color:#fff; display:inline-flex; font-size:24px; margin:0; }}
+    .home-section-banner p {{ color:#dce9ff; margin:0; max-width:760px; }}
+    .home-mini span {{ color:var(--ink-muted); font-size:12px; }}
+    .home-mini strong {{ display:block; font-size:26px; margin:10px 0 4px; }}
+    .home-quick-actions {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }}
+    @media (max-width:1200px) {{
+      .home-board {{ grid-template-columns:300px 1fr; }}
+      .home-stack.right {{ grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; }}
+      .home-module-grid {{ grid-template-columns:repeat(2, minmax(0, 1fr)); }}
+      .home-important {{ grid-template-columns:1fr; }}
+    }}
+    @media (max-width:800px) {{
+      .two, .editor-layout, .period-tabs, .home-top, .home-board, .home-stack.right, .home-module-grid, .home-status-grid, .home-mini-grid {{ grid-template-columns:1fr; }}
+      main {{ padding:18px 14px 36px; }}
+      header {{ padding:16px 18px; }}
+      .home-status-cell {{ border-right:0; border-bottom:1px solid var(--line); }}
+      .home-status-cell:last-child {{ border-bottom:0; }}
+    }}
   </style>
 </head>
 <body>
@@ -2376,48 +2940,227 @@ def fetch_home_vps_summary():
     )
 
 
+def home_module_card(title, value, detail, href, progress=50):
+    return f"""
+    <a class="home-module" href="{esc(href)}">
+      <b>{esc(title)}</b>
+      <span>{esc(detail)}</span>
+      <strong>{esc(value)}</strong>
+      <div class="home-progress"><i style="width:{max(0, min(100, int(progress)))}%"></i></div>
+    </a>
+    """
+
+
+def home_todo_cards(rows, date_text):
+    if not rows:
+        return """
+        <div class="home-todo">
+          <span class="home-check"></span>
+          <div><b>暂无今日待办</b><small>VPS 没有返回待处理事项</small></div>
+          <span class="home-chip ok">正常</span>
+        </div>
+        """
+    cards = []
+    for row in rows[:5]:
+        priority = first_text(row, "priority", "priority_name") or "普通"
+        title = first_text(row, "title", "name") or "未命名事项"
+        status = first_text(row, "status_name", "status.name", "stage_name") or "待处理"
+        deadline = first_text(row, "deadline", "due_date", "date_deadline") or date_text
+        chip_class = "warn" if any(word in priority for word in ("高", "紧急", "High", "high")) else ""
+        cards.append(f"""
+        <div class="home-todo">
+          <span class="home-check"></span>
+          <div><b>{esc(title)}</b><small>{esc(status)} · 截止 {esc(deadline)}</small></div>
+          <span class="home-chip {chip_class}">{esc(priority)}</span>
+        </div>
+        """)
+    return "".join(cards)
+
+
 def render_home(date_text, message="", hermes_result=None):
     out = output_dir(date_text)
     report = out / "data_summary_report.md"
     dashboard = out / "dashboard.html"
     workbook = out / f"{date_text}_data_summary.xlsx"
     pdca = out / "pdca_daily_check.md"
+    latest_workbook = latest_output_file(date_text, "workbook")
+    latest_report = latest_output_file(date_text, "report")
+    latest_pdca = latest_output_file(date_text, "pdca")
     im_unread, today_todos = fetch_home_vps_summary()
     unread_im_count = im_unread["unread_count"]
     unread_channel_count = im_unread["channel_count"]
     today_todo_count = today_todos["count"]
-    cards = "".join([
-        dashboard_card(date_text, dashboard.exists()),
-        customer_mgmt_card(),
-        metric_card(
-            "IM 未读消息",
-            f"{unread_im_count} 条",
-            f"来自 VPS：{unread_channel_count} 个未读会话" if im_unread["ok"] else f"VPS 拉取失败：{im_unread['error'][:40]}",
-            im_unread["ok"] and unread_im_count == 0,
-            route_url("/im-unread", date_text),
-        ),
-        metric_card(
-            "今日待办",
-            f"{today_todo_count} 项",
-            "来自 VPS：点击查看今日待办" if today_todos["ok"] else f"VPS 拉取失败：{today_todos['error'][:40]}",
-            today_todos["ok"] and today_todo_count == 0,
-            route_url("/todos", date_text),
-        ),
-    ])
     if today_todos["ok"]:
         todo_rows = todo_table_rows(today_todos["rows"][:8]) or '<tr><td colspan="4">VPS 暂无今日待办</td></tr>'
+        todo_cards = home_todo_cards(today_todos["rows"], date_text)
     else:
         todo_rows = f'<tr><td colspan="4">VPS 待办拉取失败：{esc(today_todos["error"])}</td></tr>'
+        todo_cards = f"""
+        <div class="home-todo">
+          <span class="home-check"></span>
+          <div><b>VPS 待办拉取失败</b><small>{esc(today_todos["error"][:80])}</small></div>
+          <span class="home-chip warn">异常</span>
+        </div>
+        """
+    dashboard_state = "已生成" if dashboard.exists() else "待生成"
+    output_count = sum(1 for item in (latest_workbook, latest_report, latest_pdca) if item)
+    issue_count = (0 if im_unread["ok"] else 1) + (0 if today_todos["ok"] else 1) + (0 if dashboard.exists() else 1)
+    health_text = "正常" if issue_count == 0 else f"{issue_count} 项待处理"
     body = f"""
-    <div class="grid">{cards}</div>
-    <section style="margin-top:16px">
-      <h2>今日待办（VPS）</h2>
-      <table><tr><th>优先级</th><th>事项</th><th>状态</th><th>截止</th></tr>{todo_rows}</table>
-    </section>
-    {render_hermes_panel(date_text)}
-    {render_agent_cards(date_text)}
-    {render_output_panel(date_text, out, dashboard, workbook, report, pdca)}
-    {render_hermes_result_modal(date_text, hermes_result)}
+    <div class="workbench-home">
+      <div class="period-tabs" aria-label="周期切换">
+        <a class="period-tab active" href="{esc(route_url('/', date_text))}">日</a>
+        <a class="period-tab" href="{esc(route_url('/', date_text))}">周</a>
+        <a class="period-tab" href="{esc(route_url('/', date_text))}">月</a>
+        <a class="period-tab" href="{esc(route_url('/', date_text))}">季度</a>
+        <a class="period-tab" href="{esc(route_url('/', date_text))}">年度</a>
+      </div>
+
+      <div class="home-top">
+        <div class="home-metric">
+          <div class="home-metric-row"><span class="home-metric-kicker">负责人</span><span class="home-chip">Sam</span></div>
+          <div><div class="home-metric-value">{today_todo_count}</div><p>今日待办事项</p></div>
+        </div>
+        <div class="home-metric">
+          <div class="home-metric-row"><span class="home-metric-kicker">业务入口</span><span class="home-chip ok">4 个模块</span></div>
+          <div><div class="home-metric-value">{output_count}/3</div><p>今日输出物完成度</p></div>
+        </div>
+        <div class="home-metric">
+          <div class="home-metric-row"><span class="home-metric-kicker">事务状态</span><span class="home-chip {'ok' if issue_count == 0 else 'warn'}">{esc(health_text)}</span></div>
+          <div><div class="home-metric-value">{unread_im_count}</div><p>IM 未读消息 · {unread_channel_count} 个会话</p></div>
+        </div>
+      </div>
+
+      <div class="home-section-banner">
+        <h2><strong>01</strong>行动闭环</h2>
+        <p>把 AI 提醒、OKR 拆解和日常管理动作沉淀为个人任务中心，员工可自行标记状态、维护备注和完成进度。</p>
+      </div>
+
+      <div class="home-board">
+        <div class="home-stack">
+          <section class="home-panel">
+            <div class="home-panel-head">
+              <h2>今日待办</h2>
+              <a class="button light" href="{esc(route_url('/todos', date_text))}">More</a>
+            </div>
+            <div class="home-panel-body home-todo-list">{todo_cards}</div>
+          </section>
+
+          <section class="home-panel">
+            <div class="home-panel-head"><h2>待分析消息</h2><span class="home-chip {'ok' if unread_im_count == 0 else 'warn'}">{unread_im_count} 条</span></div>
+            <div class="home-panel-body">
+              <p>{esc("IM 暂无未读会话" if unread_im_count == 0 else f"来自 {unread_channel_count} 个会话，需要判断是否转任务或转 Hermes。")}</p>
+              <div class="home-quick-actions">{button("打开 IM 未读", route_url("/im-unread", date_text), "light")}</div>
+            </div>
+          </section>
+        </div>
+
+        <section class="home-panel">
+          <div class="home-panel-head">
+            <h2>业务进度</h2>
+            <span class="home-chip">{esc(date_text)}</span>
+          </div>
+          <div class="home-panel-body">
+            <div class="home-module-grid">
+              {home_module_card("数据看板", dashboard_state, "日报、业务指标与风险摘要", route_url("/dashboard", date_text), 80 if dashboard.exists() else 30)}
+              {home_module_card("客户管理", "CRM", "经销商客户台账、拜访与回款", "/customer-mgmt", 72)}
+              {home_module_card("海外客流", "Walk-in", "代理商终销、大区与团队表现", "/walkin-cockpit/", 68)}
+              {home_module_card("线上经营", "Online", "已并入客流分析：OKR、渠道线索", "/walkin-cockpit/#oi-merged", 58)}
+            </div>
+            <div class="home-status-grid">
+              <div class="home-status-cell"><span>数据报告</span><strong>{'1' if latest_report else '0'}</strong></div>
+              <div class="home-status-cell"><span>Excel 表格</span><strong>{'1' if latest_workbook else '0'}</strong></div>
+              <div class="home-status-cell"><span>PDCA 日结</span><strong>{'1' if latest_pdca else '0'}</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="home-stack right">
+          <section class="home-panel">
+            <div class="home-panel-head"><h2>异常情况</h2><span class="home-chip {'ok' if issue_count == 0 else 'warn'}">{issue_count}</span></div>
+            <div class="home-panel-body">
+              <div class="home-alert">
+                <div class="home-alert-icon">!</div>
+                <div><b>{esc("首页服务正常" if issue_count == 0 else "存在待处理事项")}</b><p>{esc("VPS、看板与输出入口均可继续使用。" if issue_count == 0 else "优先检查 VPS 拉取状态和今日看板是否生成。")}</p></div>
+              </div>
+              <div class="home-alert">
+                <div class="home-alert-icon">i</div>
+                <div><b>当前端口 8767</b><p>首页、Walk-in 与线上经营都由 pdca_workbench.py 托管。</p></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="home-panel">
+            <div class="home-panel-head"><h2>服务健康</h2><span class="home-chip ok">在线</span></div>
+            <div class="home-panel-body">
+              <div class="home-alert"><div class="home-alert-icon">D</div><div><b>数据看板</b><p>{esc("今日 dashboard.html 已生成" if dashboard.exists() else "今日 dashboard.html 尚未生成")}</p></div></div>
+              <div class="home-alert"><div class="home-alert-icon">V</div><div><b>VPS 摘要</b><p>{esc("待办和 IM 摘要已返回" if im_unread["ok"] and today_todos["ok"] else "部分 VPS 摘要拉取失败")}</p></div></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="home-section-banner">
+        <h2><strong>02</strong>行政事务</h2>
+        <p>把合同、审批、资料、报销和跨部门协同集中处理，确保行政节点不拖慢销售动作和 OKR 执行。</p>
+      </div>
+
+      <div class="home-important">
+        <section class="home-panel">
+          <div class="home-panel-head"><h2>重要事项</h2><span class="home-chip">业务</span></div>
+          <div class="home-panel-body">
+            <ul class="home-note-list">
+              <li>先确认今日看板与 Excel 是否生成，缺失时运行 PDCA 日跑。</li>
+              <li>今日待办需要和 IM 消息闭环，避免只看数据不落行动。</li>
+              <li>海外客流和线上经营作为经营驾驶舱入口，放在首页第一屏。</li>
+            </ul>
+            <div class="home-quick-actions">
+              {button("运行今日 PDCA", route_url("/run", date_text))}
+              {button("打开今日输出", route_url("/open", date_text, target="report"), "light")}
+            </div>
+          </div>
+        </section>
+
+        <section class="home-panel">
+          <div class="home-panel-head"><h2>处理建议</h2><span class="home-chip">事务</span></div>
+          <div class="home-panel-body">
+            <ul class="home-note-list">
+              <li>有未读 IM 时，先判断是否需要派给 Hermes 生成报告或动作清单。</li>
+              <li>代理商名单和客流指标只从 JSON 数据包读取，更新 Excel 后需重跑构建脚本。</li>
+              <li>改完首页样式后重启服务，并在浏览器 Ctrl+F5 强制刷新。</li>
+            </ul>
+          </div>
+        </section>
+      </div>
+
+      <section class="home-panel">
+        <div class="home-panel-head"><h2>任务中心</h2><a class="button light" href="{esc(route_url('/pdca-vps', date_text))}">PDCA 日结</a></div>
+        <div class="home-panel-body home-mini-grid">
+          <div class="home-mini"><span>总任务数</span><strong>{today_todo_count}</strong><p>来自 VPS 今日待办</p></div>
+          <div class="home-mini"><span>已完成</span><strong>{max(0, output_count)}</strong><p>今日已生成输出物</p></div>
+          <div class="home-mini"><span>未完成</span><strong>{max(0, today_todo_count - output_count)}</strong><p>待继续跟进事项</p></div>
+        </div>
+      </section>
+
+      <section class="home-panel">
+        <div class="home-panel-head"><h2>会议中心</h2><span class="home-chip">复盘</span></div>
+        <div class="home-panel-body home-mini-grid">
+          <div class="home-mini"><span>待确认</span><strong>{unread_channel_count}</strong><p>可从 IM 会话转入</p></div>
+          <div class="home-mini"><span>业务复盘</span><strong>2</strong><p>Walk-in / 线上经营</p></div>
+          <div class="home-mini"><span>输出闭环</span><strong>{output_count}</strong><p>报告、Excel、PDCA</p></div>
+        </div>
+      </section>
+
+      <section class="home-panel">
+        <div class="home-panel-head"><h2>今日待办明细（VPS）</h2><a class="button light" href="{esc(route_url('/todos', date_text))}">查看全部</a></div>
+        <div class="home-panel-body"><table><tr><th>优先级</th><th>事项</th><th>状态</th><th>截止</th></tr>{todo_rows}</table></div>
+      </section>
+
+      {render_hermes_panel(date_text)}
+      {render_agent_cards(date_text)}
+      {render_output_panel(date_text, out, dashboard, workbook, report, pdca)}
+      {render_hermes_result_modal(date_text, hermes_result)}
+    </div>
     """
     return page("数据岗位 PDCA 工作台", body, date_text, message)
 
@@ -2619,11 +3362,26 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
             return
 
+    def send_json(self, payload, status=200):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
+            return
+
     def send_file(self, path):
-        content = path.read_bytes()
+        content_type = "text/html; charset=utf-8"
+        self.send_bytes(path.read_bytes(), content_type)
+
+    def send_bytes(self, content, content_type):
         try:
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", content_type)
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Content-Length", str(len(content)))
@@ -2631,6 +3389,52 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
             return
+
+    def serve_cockpit_module(self, mount, parsed_path, resolve_asset, date_text=""):
+        """静态驾驶舱模块：/walkin-cockpit/、/online-cockpit/ 等。"""
+        if parsed_path == mount:
+            self.send_response(302)
+            self.send_header("Location", f"{mount}/")
+            self.end_headers()
+            return
+        rel = parsed_path[len(mount) + 1 :]
+        asset = resolve_asset(rel)
+        if not asset:
+            self.send_response(404)
+            self.end_headers()
+            return
+        guessed, _ = mimetypes.guess_type(str(asset))
+        content_type = guessed or "application/octet-stream"
+        if asset.suffix.lower() in {".js", ".mjs"}:
+            content_type = "application/javascript; charset=utf-8"
+        elif asset.suffix.lower() == ".json":
+            content_type = "application/json; charset=utf-8"
+        elif asset.suffix.lower() in {".html", ".htm"}:
+            title = "经销商海外客流分析台" if "walkin" in mount else "经销商线上经营"
+            html = skin_cockpit_html(asset.read_text(encoding="utf-8"), date_text, title)
+            self.send_html(html)
+            return
+        self.send_bytes(asset.read_bytes(), content_type)
+
+    def serve_walkin_cockpit(self, parsed_path, date_text=""):
+        self.serve_cockpit_module("/walkin-cockpit", parsed_path, resolve_walkin_asset, date_text)
+
+    def serve_online_cockpit(self, parsed_path, date_text=""):
+        self.serve_cockpit_module("/online-cockpit", parsed_path, resolve_online_asset, date_text)
+
+    def send_walkin_api(self, query, date_text):
+        """Walk-in 数据：VPS > Excel 参考 JSON > mock。"""
+        month = (query.get("month", [""])[0] or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}", month):
+            month = (date_text or today_text())[:7]
+        if build_walkin_api_payload is None:
+            self.send_json({"error": "workbench_data module missing"}, status=500)
+            return
+        try:
+            payload = build_walkin_api_payload(month, date_text or today_text())
+            self.send_json(payload)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, status=500)
 
     def send_error_page(self, exc):
         try:
@@ -2671,7 +3475,16 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         date_text = self.date_from_query(parsed.query)
         message = query.get("message", [""])[0]
         if parsed.path == "/":
+            serve_home_dashboard_index(self)
+        elif parsed.path == "/home-classic":
             self.send_html(render_home(date_text, message))
+        elif parsed.path.startswith("/api/dashboard/") or parsed.path.startswith("/api/todos/") or parsed.path.startswith("/api/hermes-agent/") or parsed.path.startswith("/api/customer-center/") or parsed.path.startswith("/api/hr/") or parsed.path == "/api/exceptions" or parsed.path.startswith("/api/important-matters") or parsed.path.startswith("/api/task-center/") or parsed.path.startswith("/api/meeting-center/"):
+            data = dispatch_home_dashboard_api(parsed.path, query)
+            if data is None:
+                self.send_response(404)
+                self.end_headers()
+            else:
+                self.send_json(data)
         elif parsed.path == "/questionnaire":
             self.send_html(render_questionnaire(date_text, message))
         elif parsed.path == "/todos":
@@ -2705,9 +3518,21 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     self.redirect("/", date_text, f"当天看板生成失败：{stderr or stdout}"[:300])
                     return
             if dashboard.exists():
-                self.send_file(dashboard)
+                serve_dashboard_html(self, dashboard, date_text)
             else:
                 self.redirect("/", date_text, "这个日期还没有看板，请先运行当天 PDCA。")
+        elif parsed.path == "/dashboard-theme.css":
+            if DASHBOARD_THEME_CSS.is_file():
+                self.send_bytes(DASHBOARD_THEME_CSS.read_bytes(), "text/css; charset=utf-8")
+            else:
+                self.send_response(404)
+                self.end_headers()
+        elif parsed.path == "/workbench-cockpit-shell.css":
+            if COCKPIT_SHELL_CSS.is_file():
+                self.send_bytes(COCKPIT_SHELL_CSS.read_bytes(), "text/css; charset=utf-8")
+            else:
+                self.send_response(404)
+                self.end_headers()
         elif parsed.path == "/open":
             target = query.get("target", [""])[0]
             self.redirect("/", date_text, open_target(date_text, target))
@@ -2727,6 +3552,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         elif parsed.path == "/open-im-channel":
             channel_id = query.get("channel_id", [""])[0]
             self.redirect("/im-unread", date_text, open_im_channel(channel_id))
+        elif parsed.path == "/walkin-cockpit" or parsed.path.startswith("/walkin-cockpit/"):
+            self.serve_walkin_cockpit(parsed.path, date_text)
+        elif parsed.path == "/online-cockpit" or parsed.path.startswith("/online-cockpit/"):
+            self.serve_online_cockpit(parsed.path, date_text)
+        elif parsed.path == "/api/walkin":
+            self.send_walkin_api(query, date_text)
         else:
             self.send_response(404)
             self.end_headers()
@@ -2740,6 +3571,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _do_POST(self):
         parsed = urlparse(self.path)
         date_text = self.date_from_query(parsed.query)
+        if parsed.path == "/api/agent/process-suggestion":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            self.send_json({"ok": True, "message": "建议已记录", "id": payload.get("id")})
+            return
         if parsed.path == "/agent-skill":
             query = parse_qs(parsed.query)
             agent_key = query.get("agent", [""])[0]
