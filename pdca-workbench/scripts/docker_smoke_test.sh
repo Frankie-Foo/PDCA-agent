@@ -16,6 +16,11 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 cleanup() {
+  # Files written through the bind mounts are owned by the container user
+  # (root in production). Make the disposable runtime tree removable by the
+  # CI runner before stopping the container.
+  docker exec "$CONTAINER_NAME" chmod -R a+rwX \
+    /mvp/inputs /mvp/outputs /mvp/outbox >/dev/null 2>&1 || true
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   rm -rf "$RUNTIME_ROOT"
 }
