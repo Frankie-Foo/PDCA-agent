@@ -288,6 +288,8 @@ function Start-PdcaContainer {
         "-e", "PDCA_CORS_ORIGINS=https://pdca-workbench-teams.vertu.cn",
         "-e", "PDCA_REQUIRE_VERTU=1",
         "-e", "PDCA_INCLUDE_DEMO_DATA=0",
+        "-e", "PDCA_BOOTSTRAP_ADMIN_USERNAME=",
+        "-e", "PDCA_BOOTSTRAP_ADMIN_PASSWORD=",
         "-e", "PDCA_MAX_REPORTED_REVENUE_USD=5000000",
         "-e", "PDCA_SCHEDULER_ENABLED=1",
         "-e", "PDCA_SYNC_CRON=0 6 * * *",
